@@ -33,5 +33,9 @@ logging:
   level: "INFO"
   format: "json"  # "json" | "text"
 
+debug:
+  enabled: false
+  dir: "data/debug"
+
 metrics:
   enabled: true

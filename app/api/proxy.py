@@ -1,6 +1,9 @@
 import asyncio
+import json as json_module
+import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, Request
@@ -40,19 +43,59 @@ def _ensure_adapters():
         _strategy = create_strategy(config.priority.strategy)
 
 
+# ── Debug request/response dump ────────────────────────────────────
+
+_debug_buffer: dict = {}  # request_id -> list of bytes chunks (streaming only)
+
+
+def _debug_enabled() -> bool:
+    try:
+        return get_config().debug.enabled
+    except AssertionError:
+        return False
+
+
+def _debug_dir() -> str:
+    return get_config().debug.dir
+
+
+def _save_debug_file(request_id: str, label: str, data: str, ctx: RequestContext):
+    """Write a debug payload to disk. Fire-and-forget via asyncio."""
+    if not _debug_enabled():
+        return
+    asyncio.ensure_future(_do_save_debug(request_id, label, data, ctx))
+
+
+async def _do_save_debug(request_id: str, label: str, data: str, ctx: RequestContext):
+    try:
+        d = Path(_debug_dir())
+        d.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")[:-3]
+        model = ctx.model.replace("/", "_") if ctx.model else "unknown"
+        fname = d / f"{ts}_{request_id[:12]}_{model}_{label}.json"
+        fname.write_text(data, encoding="utf-8")
+    except Exception:
+        pass
+
+
 async def _stream_wrapper(
     generator: AsyncGenerator[bytes, None],
     request_id: str,
     context: RequestContext,
 ) -> AsyncGenerator[bytes, None]:
     """Wrap a streaming generator to ensure signal_done is always called."""
+    buf = []
     try:
         async for chunk in generator:
+            if _debug_enabled():
+                buf.append(chunk)
             yield chunk
     finally:
         queue = get_queue()
         await queue.signal_done(request_id)
         _record_completion(context)
+        if _debug_enabled() and buf:
+            _save_debug_file(request_id, "response", b"".join(buf).decode("utf-8", errors="replace"), context)
 
 
 def _record_completion(context: RequestContext):
@@ -166,6 +209,11 @@ async def _process_request(request: Request, endpoint: str) -> Response:
         streamed=is_stream,
     )
 
+    # Debug: dump request body
+    if _debug_enabled():
+        _save_debug_file(context.request_id, "request",
+                         json_module.dumps(body, ensure_ascii=False), context)
+
     # Enqueue
     enqueued = await queue.enqueue(context)
     if not enqueued:
@@ -199,6 +247,11 @@ async def _process_request(request: Request, endpoint: str) -> Response:
         result = await adapter.call(context)
         await queue.signal_done(context.request_id)
         _record_completion(context)
+        if _debug_enabled():
+            _save_debug_file(context.request_id, "response",
+                             json_module.dumps(result, ensure_ascii=False)
+                             if isinstance(result, dict) else result.decode("utf-8", errors="replace"),
+                             context)
         if isinstance(result, dict):
             return JSONResponse(content=result)
         # bytes (error response from backend)

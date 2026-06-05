@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
             auth_enabled=cfg.auth.enabled,
             backend_base_url=cfg.backend.base_url,
             backend_timeout=cfg.backend.timeout,
+            debug_enabled=cfg.debug.enabled,
         )
 
         if cfg.auth.enabled:

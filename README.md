@@ -82,6 +82,10 @@ backend:
   base_url: "http://localhost:11434/v1"  # 后端 LLM 服务地址
   api_key: "sk-xxx"                      # 后端认证 Key
   timeout: 300                            # 请求超时（秒）
+
+debug:
+  enabled: false                         # 开启后记录完整请求/响应到 data/debug/
+  dir: "data/debug"                      # debug 日志目录
 ```
 
 ## API 使用

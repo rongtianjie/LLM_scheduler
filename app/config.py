@@ -47,6 +47,11 @@ class LoggingConfig(BaseModel):
     format: str = "json"  # "json" | "text"
 
 
+class DebugConfig(BaseModel):
+    enabled: bool = False
+    dir: str = "data/debug"
+
+
 class MetricsConfig(BaseModel):
     enabled: bool = True
 
@@ -60,6 +65,7 @@ class AppConfig(BaseModel):
     priority: PriorityConfig = PriorityConfig()
     backend: BackendConfig = BackendConfig()
     logging: LoggingConfig = LoggingConfig()
+    debug: DebugConfig = DebugConfig()
     metrics: MetricsConfig = MetricsConfig()
 
 
