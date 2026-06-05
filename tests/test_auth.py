@@ -1,6 +1,4 @@
 import pytest
-from fastapi import HTTPException
-from fastapi.testclient import TestClient
 
 from app.config import AppConfig
 
@@ -47,12 +45,43 @@ async def test_priority_strategy_factory():
 
 
 @pytest.mark.asyncio
+async def test_config_local_override(tmp_path):
+    """config.local.yaml should override values in config.yaml."""
+    from app.config import _config, load_config, init_config
+
+    base = tmp_path / "config.yaml"
+    local = tmp_path / "config.local.yaml"
+
+    base.write_text("server:\n  port: 8001\nauth:\n  enabled: true\n")
+    local.write_text("auth:\n  enabled: false\n")
+
+    cfg = load_config(str(base))
+    assert cfg.server.port == 8001
+    assert cfg.auth.enabled is False  # overridden by local
+
+    # Check loaded files
+    assert str(base) in cfg._loaded_files
+    assert str(local) in cfg._loaded_files
+
+
+def test_config_no_local(tmp_path):
+    """Without config.local.yaml, only config.yaml is loaded."""
+    from app.config import load_config
+
+    base = tmp_path / "config.yaml"
+    base.write_text("server:\n  port: 8001\n")
+
+    cfg = load_config(str(base))
+    assert cfg.server.port == 8001
+    assert len(cfg._loaded_files) == 1
+
+
+@pytest.mark.asyncio
 async def test_ip_strategy_matching(config):
     """IP strategy matches exact and CIDR patterns."""
     from app.strategies.ip_based import IPPriorityStrategy
     strategy = IPPriorityStrategy()
 
-    # Test the internal matching
     assert strategy._ip_matches("192.168.1.100", "192.168.1.100")
     assert strategy._ip_matches("10.0.0.5", "10.0.0.0/24")
     assert not strategy._ip_matches("192.168.1.200", "192.168.1.100")

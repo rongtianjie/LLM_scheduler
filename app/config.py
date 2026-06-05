@@ -66,17 +66,42 @@ class AppConfig(BaseModel):
 _config: Optional[AppConfig] = None
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Deep merge two dicts. override values take precedence."""
+    result = dict(base)
+    for key, val in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
+
+
 def load_config(path: Optional[str] = None) -> AppConfig:
     if path is None:
         path = os.environ.get("LLM_GATEWAY_CONFIG", "config.yaml")
     config_path = Path(path)
+
+    # Load primary config
     if config_path.exists():
         with open(config_path, "r") as f:
-            data = yaml.safe_load(f)
-        if data is None:
-            data = {}
-        return AppConfig(**data)
-    return AppConfig()
+            data = yaml.safe_load(f) or {}
+        loaded_files = [str(config_path)]
+    else:
+        data = {}
+        loaded_files = []
+
+    # Auto-merge config.local.yaml if it exists alongside the primary config
+    local_path = config_path.with_name("config.local.yaml")
+    if local_path.exists() and str(local_path) != str(config_path):
+        with open(local_path, "r") as f:
+            local_data = yaml.safe_load(f) or {}
+        data = _deep_merge(data, local_data)
+        loaded_files.append(str(local_path))
+
+    result = AppConfig(**data)
+    result._loaded_files = loaded_files  # type: ignore
+    return result
 
 
 def init_config(path: Optional[str] = None) -> AppConfig:
