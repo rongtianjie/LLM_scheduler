@@ -49,6 +49,8 @@ def create_app() -> FastAPI:
         cfg = get_config()
         await init_db(cfg)
         init_queue(cfg.queue.max_length)
+        # Suppress uvicorn access logs (set after uvicorn's own log config)
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
         logger = structlog.get_logger()
 
         loaded = getattr(cfg, "_loaded_files", [])
@@ -119,8 +121,6 @@ def create_app() -> FastAPI:
 def main():
     app = create_app()
     config = get_config()
-    # Suppress uvicorn access logs at INFO level, only show WARNING+
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     uvicorn.run(
         app,
         host=config.server.host,
