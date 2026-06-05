@@ -83,8 +83,8 @@ See `config.yaml` for all options. Key settings:
 | `POST /admin/api/keys` | Create API key |
 | `PUT /admin/api/keys/{id}` | Update API key |
 | `DELETE /admin/api/keys/{id}` | Delete API key |
-| `GET /admin/api/stats` | Dashboard stats |
-| `GET /admin/api/logs` | Query logs (paginated) |
+| `GET /admin/api/stats` | Dashboard stats (supports `?period=24h&key_id=1`) |
+| `GET /admin/api/logs` | Query logs (paginated, includes token columns) |
 
 ## Request Flow
 

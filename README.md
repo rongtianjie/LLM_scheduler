@@ -8,10 +8,11 @@
 - **优先级队列**：根据 API Key 或来源 IP 分配优先级，高优先级请求插队
 - **并发控制**：单工作槽（concurrency=1），队列满返回 429
 - **流式透传**：SSE 事件流原样转发，不解析不修改
+- **Token 统计**：自动记录每次请求的输入/输出 token 数（流式 + 非流式）
 - **API Key 认证**：独立 API Key，可配置开关
-- **结构化日志**：JSON 格式，完整请求生命周期记录
+- **结构化日志**：JSON 格式，完整请求生命周期记录（含 token 用量）
 - **Prometheus 指标**：队列长度、请求延迟、处理时间等
-- **嵌入式管理面板**：Web 界面管理 API Key、查看日志和统计
+- **嵌入式管理面板**：Web 界面管理 API Key、查看日志、统计和仪表盘
 - **Docker 部署**：一键启动，数据持久化
 
 ## 快速开始
@@ -22,7 +23,7 @@
 # 1. 安装依赖
 pip install -r requirements.txt
 
-# 2. 编辑配置文件
+# 2. 编辑配置（config.local.yaml 会自动覆盖 config.yaml）
 cp config.yaml config.local.yaml
 # 修改 backend.base_url、backend.api_key 等
 
@@ -126,15 +127,19 @@ curl -X POST http://localhost:8001/admin/api/keys \
 # 查询日志
 curl "http://localhost:8001/admin/api/logs?page=1&per_page=20" \
   -u admin:admin123
+
+# 获取统计（支持时间范围: 1h, 6h, 24h, 7d, 30d, all）
+curl "http://localhost:8001/admin/api/stats?period=24h" \
+  -u admin:admin123
 ```
 
 ## 管理面板
 
 浏览器访问 `http://localhost:8001/admin`，使用配置的管理员账号登录。
 
-- **Dashboard**：实时队列状态、请求统计
-- **API Keys**：创建/编辑/删除 API Key
-- **Logs**：查看请求历史，支持筛选和分页
+- **Dashboard**：实时队列状态、请求统计，支持时间范围选择（1h/6h/24h/7d/30d），按 API Key 展示请求数和 Token 用量
+- **API Keys**：创建/编辑/删除 API Key，创建时显示完整 Key 并支持一键复制
+- **Logs**：查看请求历史，含 Token 用量列，支持按用户和端点筛选分页
 
 ## 队列行为
 
