@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>API Keys</h2>
+    <button class="btn btn-primary" onclick="showCreateForm()">+ New Key</button>
+</div>
+
+<!-- Create form -->
+<div class="modal-overlay" id="create-modal" style="display:none">
+    <div class="modal">
+        <h3>Create API Key</h3>
+        <form id="create-form" onsubmit="createKey(event)">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" name="name" required placeholder="e.g. alice">
+            </div>
+            <div class="form-group">
+                <label>Priority (lower = higher priority)</label>
+                <input type="number" name="priority" value="100" min="1">
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn" onclick="hideCreateForm()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Keys table -->
+<table class="table">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>API Key</th>
+            <th>Priority</th>
+            <th>Enabled</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody id="keys-table-body">
+    </tbody>
+</table>
+
+<script>
+async function loadKeys() {
+    const res = await fetch('/admin/api/keys');
+    const keys = await res.json();
+    const tbody = document.getElementById('keys-table-body');
+    tbody.innerHTML = keys.map(k => `
+        <tr>
+            <td>${k.id}</td>
+            <td>${k.name}</td>
+            <td><code>${k.key.substring(0, 12)}...</code></td>
+            <td>${k.priority}</td>
+            <td>${k.enabled ? '✅' : '❌'}</td>
+            <td>${k.created_at ? new Date(k.created_at).toLocaleDateString() : '-'}</td>
+            <td class="actions">
+                <button class="btn btn-sm" onclick="toggleKey(${k.id}, ${!k.enabled})">${k.enabled ? 'Disable' : 'Enable'}</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteKey(${k.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function createKey(e) {
+    e.preventDefault();
+    const form = e.target;
+    const data = { name: form.name.value, priority: parseInt(form.name.value) || 100 };
+    data.priority = parseInt(form.priority.value) || 100;
+    await fetch('/admin/api/keys', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    form.reset();
+    hideCreateForm();
+    loadKeys();
+}
+
+async function toggleKey(id, enabled) {
+    await fetch(`/admin/api/keys/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled})
+    });
+    loadKeys();
+}
+
+async function deleteKey(id) {
+    if (!confirm('Delete this API key?')) return;
+    await fetch(`/admin/api/keys/${id}`, {method: 'DELETE'});
+    loadKeys();
+}
+
+function showCreateForm() {
+    document.getElementById('create-modal').style.display = 'flex';
+}
+
+function hideCreateForm() {
+    document.getElementById('create-modal').style.display = 'none';
+}
+
+loadKeys();
+</script>
+{% endblock %}

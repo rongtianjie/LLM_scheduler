@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Gateway Admin</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="layout">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>LLM Gateway</h1>
+            </div>
+            <ul class="nav-links">
+                <li><a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}">Dashboard</a></li>
+                <li><a href="/admin/api-keys" class="{% if request.url.path == '/admin/api-keys' %}active{% endif %}">API Keys</a></li>
+                <li><a href="/admin/logs" class="{% if request.url.path == '/admin/logs' %}active{% endif %}">Logs</a></li>
+            </ul>
+        </nav>
+        <main class="content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

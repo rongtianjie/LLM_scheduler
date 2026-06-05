@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>Dashboard</h2>
+</div>
+
+<div class="stats-grid" id="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Queue Length</div>
+        <div class="stat-value" id="queue-length">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Processing</div>
+        <div class="stat-value" id="queue-processing">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Queue Max</div>
+        <div class="stat-value" id="queue-max">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Queue Full</div>
+        <div class="stat-value" id="queue-full">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Requests</div>
+        <div class="stat-value" id="total-requests">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Today</div>
+        <div class="stat-value" id="today-requests">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Avg Wait</div>
+        <div class="stat-value" id="avg-wait">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Avg Process</div>
+        <div class="stat-value" id="avg-process">-</div>
+    </div>
+</div>
+
+<script>
+async function refreshDashboard() {
+    try {
+        const [queueRes, statsRes] = await Promise.all([
+            fetch('/admin/api/queue'),
+            fetch('/admin/api/stats')
+        ]);
+        const queue = await queueRes.json();
+        const stats = await statsRes.json();
+
+        document.getElementById('queue-length').textContent = queue.current_waiting;
+        document.getElementById('queue-processing').textContent = queue.current_processing ? 'Yes' : 'No';
+        document.getElementById('queue-max').textContent = queue.max_length;
+        document.getElementById('queue-full').textContent = queue.queue_full ? 'Yes' : 'No';
+        document.getElementById('total-requests').textContent = stats.total_requests;
+        document.getElementById('today-requests').textContent = stats.today_requests;
+        document.getElementById('avg-wait').textContent = stats.avg_wait_time_ms + 'ms';
+        document.getElementById('avg-process').textContent = stats.avg_processing_time_ms + 'ms';
+    } catch (e) {
+        console.error('Failed to refresh dashboard:', e);
+    }
+}
+
+setInterval(refreshDashboard, 3000);
+refreshDashboard();
+</script>
+{% endblock %}

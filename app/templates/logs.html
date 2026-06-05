@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>Request Logs</h2>
+</div>
+
+<div class="filters">
+    <input type="text" id="filter-user" placeholder="Filter by user..." class="input">
+    <select id="filter-endpoint" class="input">
+        <option value="">All endpoints</option>
+        <option value="/v1/chat/completions">/v1/chat/completions</option>
+        <option value="/v1/messages">/v1/messages</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadLogs()">Refresh</button>
+</div>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Time</th>
+            <th>User</th>
+            <th>Endpoint</th>
+            <th>Model</th>
+            <th>Priority</th>
+            <th>Wait</th>
+            <th>Process</th>
+            <th>Status</th>
+            <th>Stream</th>
+            <th>Error</th>
+        </tr>
+    </thead>
+    <tbody id="logs-table-body">
+    </tbody>
+</table>
+
+<div class="pagination" id="pagination"></div>
+
+<script>
+let currentPage = 1;
+
+async function loadLogs() {
+    const user = document.getElementById('filter-user').value;
+    const endpoint = document.getElementById('filter-endpoint').value;
+    const params = new URLSearchParams({page: currentPage, per_page: 50});
+    if (user) params.set('user', user);
+    if (endpoint) params.set('endpoint', endpoint);
+
+    const res = await fetch('/admin/api/logs?' + params.toString());
+    const data = await res.json();
+    const tbody = document.getElementById('logs-table-body');
+    tbody.innerHTML = data.items.map(r => `
+        <tr>
+            <td>${r.created_at ? new Date(r.created_at + 'Z').toLocaleTimeString() : '-'}</td>
+            <td>${r.user_name || '-'}</td>
+            <td>${r.endpoint}</td>
+            <td>${r.model || '-'}</td>
+            <td>${r.priority}</td>
+            <td>${r.wait_time_ms != null ? r.wait_time_ms + 'ms' : '-'}</td>
+            <td>${r.processing_time_ms != null ? r.processing_time_ms + 'ms' : '-'}</td>
+            <td>${r.status_code || '-'}</td>
+            <td>${r.streamed ? '✅' : '❌'}</td>
+            <td>${r.error || '-'}</td>
+        </tr>
+    `).join('');
+
+    const totalPages = Math.ceil(data.total / data.per_page);
+    document.getElementById('pagination').innerHTML = Array.from({length: totalPages}, (_, i) => {
+        const p = i + 1;
+        return `<button class="btn btn-sm ${p === currentPage ? 'btn-primary' : ''}" onclick="goPage(${p})">${p}</button>`;
+    }).join('');
+}
+
+function goPage(p) {
+    currentPage = p;
+    loadLogs();
+}
+
+setInterval(loadLogs, 5000);
+loadLogs();
+</script>
+{% endblock %}
