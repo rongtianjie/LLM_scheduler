@@ -1,36 +1,42 @@
-"""LLM Gateway 测试脚本
+"""LLM Gateway 并发压力测试脚本
 
-自动获取第一个可用模型并发送聊天请求。
-用法: python test_gateway.py [--stream] [--url URL] [--key KEY]
+2 线程并发循环请求，自动获取第一个可用模型。
+用法: python test_gateway.py [--threads N] [--url URL] [--key KEY]
 """
 
 import argparse
 import json
 import sys
+import threading
+import time
 import urllib.request
 import urllib.error
+from datetime import datetime, timezone
+
+# ── 统计信息 ──────────────────────────────────────────────────────────
+stats = {
+    "sent": 0,
+    "ok": 0,
+    "fail": 0,
+    "total_tokens": 0,
+}
+stats_lock = threading.Lock()
+start_time = time.time()
 
 
 def get_models(base_url: str, api_key: str = "") -> list:
-    """获取模型列表，返回第一个可用模型 ID。"""
     url = f"{base_url}/v1/models"
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-
     req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            models = [m["id"] for m in data.get("data", []) if m.get("id")]
-            return models
-    except Exception as e:
-        print(f"获取模型列表失败: {e}")
-        sys.exit(1)
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read())
+        return [m["id"] for m in data.get("data", []) if m.get("id")]
 
 
-def send_request(base_url: str, api_key: str, model: str, stream: bool):
-    """发送聊天请求。"""
+def worker(thread_id: int, base_url: str, api_key: str, model: str):
+    """单个工作线程：循环发送请求。"""
     url = f"{base_url}/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -39,69 +45,110 @@ def send_request(base_url: str, api_key: str, model: str, stream: bool):
     body = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": "详细介绍一下你自己"}],
-        "stream": stream,
-        "max_tokens": 1024,
+        "stream": False,
+        "max_tokens": 256,
     }).encode("utf-8")
 
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    try:
-        resp = urllib.request.urlopen(req, timeout=300)
-    except urllib.error.HTTPError as e:
-        print(f"请求失败 (HTTP {e.code}): {e.read().decode()}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"请求失败: {e}")
-        sys.exit(1)
+    while not stop_event.is_set():
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                data = json.loads(resp.read())
+            usage = data.get("usage", {})
+            tokens = usage.get("total_tokens", 0) or 0
 
-    if stream:
-        print(f"\n[{model}] 流式响应:\n{'='*50}")
-        for line in resp.read().decode().split("\n"):
-            if line.startswith("data: ") and line != "data: [DONE]":
-                try:
-                    chunk = json.loads(line[6:])
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content", "")
-                    if content:
-                        print(content, end="", flush=True)
-                except json.JSONDecodeError:
-                    pass
-        print(f"\n{'='*50}")
-    else:
-        data = json.loads(resp.read())
-        content = data["choices"][0]["message"]["content"]
-        usage = data.get("usage", {})
-        print(f"\n[{model}] 非流式响应:\n{'='*50}")
-        print(content)
-        print(f"{'='*50}")
-        if usage:
-            print(f"\nToken 用量: 输入={usage.get('prompt_tokens','?')}  "
-                  f"输出={usage.get('completion_tokens','?')}  "
-                  f"总计={usage.get('total_tokens','?')}")
+            with stats_lock:
+                stats["sent"] += 1
+                stats["ok"] += 1
+                stats["total_tokens"] += tokens
+        except urllib.error.HTTPError as e:
+            with stats_lock:
+                stats["sent"] += 1
+                stats["fail"] += 1
+            status = e.code
+            if status == 429:
+                pass  # 队列满，正常重试
+            else:
+                body_text = e.read().decode()[:100]
+                print(f"\n[T{thread_id}] HTTP {status}: {body_text}")
+        except Exception as e:
+            with stats_lock:
+                stats["sent"] += 1
+                stats["fail"] += 1
+            print(f"\n[T{thread_id}] 错误: {e}")
+
+        # 短暂等待避免 CPU 空转
+        time.sleep(0.5)
+
+
+def print_stats():
+    """定时打印统计信息。"""
+    last_sent = 0
+    while not stop_event.is_set():
+        time.sleep(5)
+        elapsed = time.time() - start_time
+        with stats_lock:
+            s = stats["sent"]
+            ok = stats["ok"]
+            fail = stats["fail"]
+            tokens = stats["total_tokens"]
+        delta = s - last_sent
+        last_sent = s
+        rps = delta / 5
+        print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] "
+              f"已发送 {s} | 成功 {ok} | 失败 {fail} | "
+              f"token {tokens} | {rps:.1f} req/s")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="LLM Gateway 测试工具")
-    parser.add_argument("--url", default="http://127.0.0.1:8001",
-                        help="网关地址 (默认: http://127.0.0.1:8001)")
-    parser.add_argument("--key", default="", help="API Key (可选)")
-    parser.add_argument("--stream", action="store_true",
-                        help="启用流式输出")
+    parser = argparse.ArgumentParser(description="LLM Gateway 并发测试")
+    parser.add_argument("--url", default="http://127.0.0.1:8001", help="网关地址")
+    parser.add_argument("--key", default="", help="API Key")
+    parser.add_argument("--threads", type=int, default=2, help="并发线程数")
     args = parser.parse_args()
+
+    global stop_event
+    stop_event = threading.Event()
 
     print(f"连接网关: {args.url}")
     models = get_models(args.url, args.key)
     if not models:
         print("没有可用模型")
         sys.exit(1)
-
     model = models[0]
-    print(f"可用模型: {', '.join(models[:5])}"
-          f"{'...' if len(models) > 5 else ''}")
-    print(f"使用模型: {model}")
-    print(f"流式模式: {'开启' if args.stream else '关闭'}")
-    print()
+    print(f"模型: {model} | 线程: {args.threads} | 按 Ctrl+C 停止\n")
 
-    send_request(args.url, args.key, model, args.stream)
+    # 启动统计线程
+    t_stat = threading.Thread(target=print_stats, daemon=True)
+    t_stat.start()
+
+    # 启动工作线程
+    threads = []
+    for i in range(args.threads):
+        t = threading.Thread(target=worker, args=(i + 1, args.url, args.key, model), daemon=True)
+        t.start()
+        threads.append(t)
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n\n正在停止...")
+        stop_event.set()
+        # 等待线程退出
+        for t in threads:
+            t.join(timeout=2)
+
+    elapsed = time.time() - start_time
+    with stats_lock:
+        print(f"\n{'='*50}")
+        print(f"测试结束")
+        print(f"耗时: {elapsed:.0f}s")
+        print(f"发送: {stats['sent']} | 成功: {stats['ok']} | 失败: {stats['fail']}")
+        if stats["sent"]:
+            print(f"成功率: {stats['ok']/stats['sent']*100:.1f}%")
+        print(f"总 token: {stats['total_tokens']}")
+        print(f"{'='*50}")
 
 
 if __name__ == "__main__":

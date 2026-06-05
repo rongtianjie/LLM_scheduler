@@ -1,31 +1,19 @@
 @echo off
 cd /d "%~dp0"
+title LLM Gateway 并发测试
 echo ========================================
-echo   LLM Gateway 测试工具
+echo   LLM Gateway 并发压力测试
+echo   2 线程循环请求
 echo ========================================
 echo.
-echo 1. 非流式请求
-echo 2. 流式请求
+echo 网关: http://127.0.0.1:8001
+echo 按 Ctrl+C 停止测试
 echo.
-set /p choice="请选择 (1 或 2): "
-
-if "%choice%"=="1" (
-    echo.
-    echo 发送非流式请求...
-    python test_gateway.py
-) else if "%choice%"=="2" (
-    echo.
-    echo 发送流式请求...
-    python test_gateway.py --stream
-) else (
-    echo 无效选择，默认发送非流式请求
-    python test_gateway.py
-)
-
+python test_gateway.py --threads 2
 echo.
 if errorlevel 1 (
-    echo 请求失败，请确认网关已启动 (http://127.0.0.1:8001)
+    echo 测试失败，请确认网关已启动
 ) else (
-    echo 请求完成
+    echo 测试已完成
 )
 pause
