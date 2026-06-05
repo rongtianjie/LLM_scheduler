@@ -21,3 +21,4 @@ data/
 *.local.yaml
 .env
 *.db
+*.stackdump
