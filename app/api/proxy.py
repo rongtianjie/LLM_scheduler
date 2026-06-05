@@ -207,19 +207,22 @@ async def _models_list(request: Request) -> Response:
     await authenticate_request(request)
 
     url = f"{config.backend.base_url}/models"
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": "LLM-Gateway-Proxy/1.0",
-    }
-    # /v1/models is typically public on vLLM backends
-    # Only send backend api key if explicitly configured
-    # (sk-backend-key is a placeholder, skip it to avoid auth issues)
+
+    # Forward client headers as-is, but override Host and add backend auth
+    headers = dict(request.headers)
+    # Remove hop-by-hop headers
+    for key in ("host", "connection", "content-length", "content-encoding",
+                "transfer-encoding", "x-forwarded-for", "x-forwarded-proto"):
+        headers.pop(key, None)
+    if config.backend.api_key:
+        headers["Authorization"] = f"Bearer {config.backend.api_key}"
 
     import httpx
     import structlog
     logger = structlog.get_logger()
     try:
-        async with httpx.AsyncClient(timeout=config.backend.timeout) as client:
+        async with httpx.AsyncClient(timeout=config.backend.timeout,
+                                     trust_env=False) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 logger.warning("backend.models_error", status=resp.status_code,

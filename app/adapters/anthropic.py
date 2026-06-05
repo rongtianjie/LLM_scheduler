@@ -23,7 +23,8 @@ class AnthropicAdapter(BaseAdapter):
 
     async def stream(self, context: RequestContext) -> AsyncGenerator[bytes, None]:
         url = f"{self.config.base_url}{self.PATH}"
-        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.config.timeout,
+                                         trust_env=False) as client:
             try:
                 async with client.stream("POST", url, json=context.body,
                                          headers=await self._headers()) as resp:
@@ -44,7 +45,8 @@ class AnthropicAdapter(BaseAdapter):
 
     async def call(self, context: RequestContext) -> Union[dict, bytes]:
         url = f"{self.config.base_url}{self.PATH}"
-        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.config.timeout,
+                                         trust_env=False) as client:
             try:
                 resp = await client.post(url, json=context.body,
                                          headers=await self._headers())
