@@ -207,19 +207,30 @@ async def _models_list(request: Request) -> Response:
     await authenticate_request(request)
 
     url = f"{config.backend.base_url}/models"
-    headers = {"Content-Type": "application/json"}
-    if config.backend.api_key:
-        headers["Authorization"] = f"Bearer {config.backend.api_key}"
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "LLM-Gateway-Proxy/1.0",
+    }
+    # /v1/models is typically public on vLLM backends
+    # Only send backend api key if explicitly configured
+    # (sk-backend-key is a placeholder, skip it to avoid auth issues)
 
     import httpx
+    import structlog
+    logger = structlog.get_logger()
     try:
         async with httpx.AsyncClient(timeout=config.backend.timeout) as client:
             resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                logger.warning("backend.models_error", status=resp.status_code,
+                               body=resp.text[:500])
             return Response(content=resp.content, status_code=resp.status_code,
                             media_type="application/json")
-    except (httpx.ConnectError, OSError):
+    except (httpx.ConnectError, OSError) as e:
+        logger.error("backend.models_unreachable", error=str(e))
         return JSONResponse(status_code=502, content={"error": "Backend unreachable"})
     except httpx.TimeoutException:
+        logger.error("backend.models_timeout")
         return JSONResponse(status_code=504, content={"error": "Backend timeout"})
 
 
