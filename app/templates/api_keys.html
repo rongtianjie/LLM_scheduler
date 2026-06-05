@@ -26,6 +26,24 @@
     </div>
 </div>
 
+<!-- Key created modal (show once) -->
+<div class="modal-overlay" id="created-modal" style="display:none">
+    <div class="modal">
+        <h3>API Key Created</h3>
+        <p style="margin-bottom:12px;color:var(--danger);font-weight:600;">Copy this key now — it will not be shown again.</p>
+        <div class="form-group">
+            <label>Key</label>
+            <div style="display:flex;gap:8px">
+                <input type="text" id="created-key-value" readonly style="flex:1;font-family:monospace;font-size:12px">
+                <button class="btn btn-primary" onclick="copyCreatedKey()">Copy</button>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn" onclick="hideCreatedModal()">Done</button>
+        </div>
+    </div>
+</div>
+
 <!-- Keys table -->
 <table class="table">
     <thead>
@@ -52,7 +70,7 @@ async function loadKeys() {
         <tr>
             <td>${k.id}</td>
             <td>${k.name}</td>
-            <td><code>${k.key.substring(0, 12)}...</code></td>
+            <td><code style="cursor:pointer;user-select:all" onclick="copyText(this)" title="Click to copy">${k.key}</code></td>
             <td>${k.priority}</td>
             <td>${k.enabled ? '✅' : '❌'}</td>
             <td>${k.created_at ? new Date(k.created_at).toLocaleDateString() : '-'}</td>
@@ -67,16 +85,39 @@ async function loadKeys() {
 async function createKey(e) {
     e.preventDefault();
     const form = e.target;
-    const data = { name: form.name.value, priority: parseInt(form.name.value) || 100 };
-    data.priority = parseInt(form.priority.value) || 100;
-    await fetch('/admin/api/keys', {
+    const data = { name: form.name.value, priority: parseInt(form.priority.value) || 100 };
+    const res = await fetch('/admin/api/keys', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
     });
+    const keyData = await res.json();
     form.reset();
     hideCreateForm();
     loadKeys();
+    // Show the created key in a modal
+    document.getElementById('created-key-value').value = keyData.key;
+    document.getElementById('created-modal').style.display = 'flex';
+}
+
+function copyCreatedKey() {
+    const input = document.getElementById('created-key-value');
+    input.select();
+    navigator.clipboard.writeText(input.value).catch(() => {});
+    alert('Key copied to clipboard');
+}
+
+function hideCreatedModal() {
+    document.getElementById('created-modal').style.display = 'none';
+}
+
+function copyText(el) {
+    const text = el.textContent;
+    navigator.clipboard.writeText(text).catch(() => {});
+    // Brief visual feedback
+    const orig = el.title;
+    el.title = 'Copied!';
+    setTimeout(() => el.title = orig, 1000);
 }
 
 async function toggleKey(id, enabled) {
