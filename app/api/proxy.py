@@ -212,7 +212,7 @@ async def _process_request(request: Request, endpoint: str) -> Response:
     # Debug: dump request body
     if _debug_enabled():
         _save_debug_file(context.request_id, "request",
-                         json_module.dumps(body, ensure_ascii=False), context)
+                         json_module.dumps(body, ensure_ascii=False, indent=2), context)
 
     # Enqueue
     enqueued = await queue.enqueue(context)
@@ -249,7 +249,7 @@ async def _process_request(request: Request, endpoint: str) -> Response:
         _record_completion(context)
         if _debug_enabled():
             _save_debug_file(context.request_id, "response",
-                             json_module.dumps(result, ensure_ascii=False)
+                             json_module.dumps(result, ensure_ascii=False, indent=2)
                              if isinstance(result, dict) else result.decode("utf-8", errors="replace"),
                              context)
         if isinstance(result, dict):
