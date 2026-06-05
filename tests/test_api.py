@@ -122,3 +122,14 @@ def test_models_endpoint(client):
     """GET /v1/models returns a response (backend may be unreachable)."""
     response = client.get("/v1/models")
     assert response.status_code in (200, 502, 504)
+
+
+def test_queue_public_endpoint(client):
+    """GET /v1/queue returns queue status without auth."""
+    response = client.get("/v1/queue")
+    assert response.status_code == 200
+    data = response.json()
+    assert "max_length" in data
+    assert "current_waiting" in data
+    assert "current_processing" in data
+    assert "queue_full" in data

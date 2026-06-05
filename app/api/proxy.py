@@ -246,6 +246,19 @@ async def models(request: Request):
     return await _models_list(request)
 
 
+@router.get("/v1/queue")
+async def queue_status():
+    """Public endpoint to check queue occupancy (no auth required)."""
+    from app.models import QueueStatus as QueueStatusSchema
+    q = get_queue()
+    return QueueStatusSchema(
+        max_length=q.max_size,
+        current_waiting=q.waiting_count,
+        current_processing=q.is_processing,
+        queue_full=q.is_full,
+    )
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     return await _process_request(request, "/v1/chat/completions")

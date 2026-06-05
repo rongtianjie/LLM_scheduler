@@ -109,6 +109,9 @@ curl http://localhost:8001/v1/messages \
     "messages": [{"role": "user", "content": "Hello"}],
     "stream": true
   }'
+
+# 查看队列状态（无需认证）
+curl http://localhost:8001/v1/queue
 ```
 
 ### 管理接口

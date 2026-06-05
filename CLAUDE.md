@@ -70,6 +70,8 @@ See `config.yaml` for all options. Key settings:
 | `GET /health` | Health check |
 | `POST /v1/chat/completions` | OpenAI-compatible proxy |
 | `POST /v1/messages` | Anthropic-compatible proxy |
+| `GET /v1/models` | List available models (forwarded to backend) |
+| **`GET /v1/queue`** | **Queue status (public, no auth required)** |
 | `GET /metrics` | Prometheus metrics |
 
 ### Admin (port 8001)
