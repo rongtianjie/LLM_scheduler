@@ -1,3 +1,4 @@
+import logging
 import structlog
 import uvicorn
 from contextlib import asynccontextmanager
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     config = init_config()
 
     # Configure structured logging
+    logging.basicConfig(level=config.logging.level.upper(), format="%(message)s")
     structlog.configure(
         processors=[
             structlog.stdlib.filter_by_level,
