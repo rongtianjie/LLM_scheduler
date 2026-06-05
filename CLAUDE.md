@@ -30,6 +30,15 @@ An LLM API gateway proxy with priority queuing, concurrency control, API key aut
 | `app/api/admin_pages.py` | Admin page routes |
 | `config.yaml` | Default configuration |
 
+## Debug Mode
+
+Enable via `debug.enabled: true` in config. Each proxy request saves:
+- `data/debug/{timestamp}_{request_id}_{model}_request.json` — full client request body
+- `data/debug/{timestamp}_{request_id}_{model}_response.json` — full backend response
+
+Files are indented JSON for readability. Streaming responses are buffered in memory
+and flushed when the stream completes.
+
 ## Running
 
 ```bash
