@@ -54,15 +54,17 @@ def create_app() -> FastAPI:
             "gateway.startup",
             port=cfg.server.port,
             config_files=loaded or ["(defaults)"],
-            backend_url=cfg.backend.base_url,
             queue_max=cfg.queue.max_length,
             priority_strategy=cfg.priority.strategy,
+            auth_enabled=cfg.auth.enabled,
+            backend_base_url=cfg.backend.base_url,
+            backend_timeout=cfg.backend.timeout,
         )
 
         if cfg.auth.enabled:
             logger.info("AUTH is ENABLED — clients must provide Authorization: Bearer <api-key>")
         else:
-            logger.warning("AUTH is DISABLED — all requests pass through without authentication")
+            logger.info("AUTH is DISABLED — all requests pass through without authentication")
         yield
         # Shutdown
         await close_db()
