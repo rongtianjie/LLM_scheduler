@@ -119,6 +119,8 @@ def create_app() -> FastAPI:
 def main():
     app = create_app()
     config = get_config()
+    # Suppress uvicorn access logs at INFO level, only show WARNING+
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     uvicorn.run(
         app,
         host=config.server.host,
