@@ -118,46 +118,89 @@ async def delete_api_key(key_id: int, request: Request, _=Depends(_admin_auth)):
 
 
 @router.get("/stats")
-async def get_stats(request: Request, _=Depends(_admin_auth)):
+async def get_stats(request: Request, _=Depends(_admin_auth),
+                    period: str = "24h", key_id: int = None):
     db = await get_db()
 
-    # Total requests
-    cursor = await db.execute("SELECT COUNT(*) as c FROM request_logs")
-    total_requests = (await cursor.fetchone())["c"]
+    # Compute time threshold
+    period_map = {
+        "1h": 3600, "6h": 21600, "24h": 86400,
+        "7d": 604800, "30d": 2592000, "all": 0,
+    }
+    cutoff_seconds = period_map.get(period, 86400)
+    if cutoff_seconds and period != "all":
+        cutoff = datetime.now(timezone.utc).timestamp() - cutoff_seconds
+        from_clause = "WHERE rl.created_at >= datetime(?, 'unixepoch')"
+        period_params = [cutoff]
+    else:
+        from_clause = ""
+        period_params = []
 
-    # Today's requests
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    cursor = await db.execute(
-        "SELECT COUNT(*) as c FROM request_logs WHERE created_at >= ?", (today,)
-    )
-    today_requests = (await cursor.fetchone())["c"]
+    key_filter = ""
+    key_params = []
+    if key_id is not None:
+        key_filter = "AND ak.id = ?"
+        key_params = [key_id]
 
-    # Average wait time (last 100)
+    # Total requests and tokens
     cursor = await db.execute(
-        "SELECT AVG(wait_time_ms) as avg_wait FROM (SELECT wait_time_ms FROM request_logs WHERE wait_time_ms IS NOT NULL ORDER BY id DESC LIMIT 100)"
+        f"SELECT COUNT(*) as c, COALESCE(SUM(rl.prompt_tokens),0) as pt, "
+        f"COALESCE(SUM(rl.completion_tokens),0) as ct "
+        f"FROM request_logs rl {from_clause}",
+        period_params,
     )
     row = await cursor.fetchone()
-    avg_wait_ms = round(row["avg_wait"]) if row["avg_wait"] else 0
+    total_requests = row["c"]
+    total_prompt_tokens = row["pt"] or 0
+    total_completion_tokens = row["ct"] or 0
 
-    # Average processing time (last 100)
-    cursor = await db.execute(
-        "SELECT AVG(processing_time_ms) as avg_proc FROM (SELECT processing_time_ms FROM request_logs WHERE processing_time_ms IS NOT NULL ORDER BY id DESC LIMIT 100)"
-    )
-    row = await cursor.fetchone()
-    avg_proc_ms = round(row["avg_proc"]) if row["avg_proc"] else 0
+    # Per-key breakdown
+    query = f"""
+        SELECT COALESCE(ak.name, rl.user_name, 'anonymous') as name,
+               ak.id as key_id,
+               COUNT(*) as requests,
+               SUM(rl.prompt_tokens) as prompt_tokens,
+               SUM(rl.completion_tokens) as completion_tokens
+        FROM request_logs rl
+        LEFT JOIN api_keys ak ON rl.user_name = ak.name
+        {from_clause}
+        GROUP BY name
+        ORDER BY requests DESC
+    """
+    cursor = await db.execute(query, period_params)
+    rows = await cursor.fetchall()
+    per_key = [
+        {
+            "name": r["name"],
+            "key_id": r["key_id"],
+            "requests": r["requests"],
+            "prompt_tokens": r["prompt_tokens"] or 0,
+            "completion_tokens": r["completion_tokens"] or 0,
+        }
+        for r in rows
+    ]
 
-    # Error count (last 1000)
-    cursor = await db.execute(
-        "SELECT COUNT(*) as c FROM request_logs WHERE error IS NOT NULL AND id > (SELECT MAX(id) - 1000 FROM request_logs)"
-    )
-    errors = (await cursor.fetchone())["c"]
+    # Errors in period
+    if from_clause:
+        cursor = await db.execute(
+            f"SELECT COUNT(*) as c FROM request_logs rl "
+            f"WHERE rl.error IS NOT NULL AND {from_clause[6:]}",
+            period_params,
+        )
+        errors = (await cursor.fetchone())["c"]
+    else:
+        cursor = await db.execute(
+            "SELECT COUNT(*) as c FROM request_logs WHERE error IS NOT NULL"
+        )
+        errors = (await cursor.fetchone())["c"]
 
     return {
+        "period": period,
         "total_requests": total_requests,
-        "today_requests": today_requests,
-        "avg_wait_time_ms": avg_wait_ms,
-        "avg_processing_time_ms": avg_proc_ms,
-        "errors_last_1000": errors,
+        "total_prompt_tokens": total_prompt_tokens,
+        "total_completion_tokens": total_completion_tokens,
+        "errors": errors,
+        "per_key": per_key,
     }
 
 
@@ -207,6 +250,8 @@ async def get_logs(request: Request, _=Depends(_admin_auth),
                 "processing_time_ms": r["processing_time_ms"],
                 "status_code": r["status_code"],
                 "streamed": bool(r["streamed"]),
+                "prompt_tokens": r["prompt_tokens"],
+                "completion_tokens": r["completion_tokens"],
                 "error": r["error"],
                 "client_ip": r["client_ip"],
                 "created_at": r["created_at"],

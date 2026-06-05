@@ -2,6 +2,14 @@
 {% block content %}
 <div class="page-header">
     <h2>Dashboard</h2>
+    <div class="period-selector">
+        <button class="btn btn-sm {% if period == '1h' %}btn-primary{% endif %}" onclick="setPeriod('1h')">1h</button>
+        <button class="btn btn-sm {% if period == '6h' %}btn-primary{% endif %}" onclick="setPeriod('6h')">6h</button>
+        <button class="btn btn-sm btn-primary" id="period-24h" onclick="setPeriod('24h')">24h</button>
+        <button class="btn btn-sm {% if period == '7d' %}btn-primary{% endif %}" onclick="setPeriod('7d')">7d</button>
+        <button class="btn btn-sm {% if period == '30d' %}btn-primary{% endif %}" onclick="setPeriod('30d')">30d</button>
+        <button class="btn btn-sm {% if period == 'all' %}btn-primary{% endif %}" onclick="setPeriod('all')">All</button>
+    </div>
 </div>
 
 <div class="stats-grid" id="stats-grid">
@@ -26,25 +34,49 @@
         <div class="stat-value" id="total-requests">-</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Today</div>
-        <div class="stat-value" id="today-requests">-</div>
+        <div class="stat-label">Prompt Tokens</div>
+        <div class="stat-value" id="prompt-tokens">-</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Avg Wait</div>
-        <div class="stat-value" id="avg-wait">-</div>
+        <div class="stat-label">Completion Tokens</div>
+        <div class="stat-value" id="completion-tokens">-</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Avg Process</div>
-        <div class="stat-value" id="avg-process">-</div>
+        <div class="stat-label">Errors</div>
+        <div class="stat-value" id="errors">-</div>
     </div>
 </div>
 
+<h3 style="margin-bottom:12px">Per API Key</h3>
+<table class="table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Requests</th>
+            <th>Prompt Tokens</th>
+            <th>Completion Tokens</th>
+            <th>Total Tokens</th>
+        </tr>
+    </thead>
+    <tbody id="per-key-body"></tbody>
+</table>
+
 <script>
+let currentPeriod = '24h';
+
+function setPeriod(p) {
+    currentPeriod = p;
+    document.querySelectorAll('.period-selector .btn').forEach(b => b.classList.remove('btn-primary'));
+    document.getElementById('period-' + p)?.classList.add('btn-primary');
+    refreshDashboard();
+}
+
 async function refreshDashboard() {
     try {
+        const params = 'period=' + currentPeriod;
         const [queueRes, statsRes] = await Promise.all([
             fetch('/admin/api/queue'),
-            fetch('/admin/api/stats')
+            fetch('/admin/api/stats?' + params)
         ]);
         const queue = await queueRes.json();
         const stats = await statsRes.json();
@@ -54,9 +86,21 @@ async function refreshDashboard() {
         document.getElementById('queue-max').textContent = queue.max_length;
         document.getElementById('queue-full').textContent = queue.queue_full ? 'Yes' : 'No';
         document.getElementById('total-requests').textContent = stats.total_requests;
-        document.getElementById('today-requests').textContent = stats.today_requests;
-        document.getElementById('avg-wait').textContent = stats.avg_wait_time_ms + 'ms';
-        document.getElementById('avg-process').textContent = stats.avg_processing_time_ms + 'ms';
+        document.getElementById('prompt-tokens').textContent = (stats.total_prompt_tokens || 0).toLocaleString();
+        document.getElementById('completion-tokens').textContent = (stats.total_completion_tokens || 0).toLocaleString();
+        document.getElementById('errors').textContent = stats.errors || 0;
+
+        // Per-key table
+        const tbody = document.getElementById('per-key-body');
+        tbody.innerHTML = (stats.per_key || []).map(k => `
+            <tr>
+                <td>${k.name}</td>
+                <td>${k.requests}</td>
+                <td>${(k.prompt_tokens || 0).toLocaleString()}</td>
+                <td>${(k.completion_tokens || 0).toLocaleString()}</td>
+                <td>${((k.prompt_tokens || 0) + (k.completion_tokens || 0)).toLocaleString()}</td>
+            </tr>
+        `).join('');
     } catch (e) {
         console.error('Failed to refresh dashboard:', e);
     }

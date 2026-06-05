@@ -24,6 +24,8 @@
             <th>Priority</th>
             <th>Wait</th>
             <th>Process</th>
+            <th>Prompt</th>
+            <th>Completion</th>
             <th>Status</th>
             <th>Stream</th>
             <th>Error</th>
@@ -57,6 +59,8 @@ async function loadLogs() {
             <td>${r.priority}</td>
             <td>${r.wait_time_ms != null ? r.wait_time_ms + 'ms' : '-'}</td>
             <td>${r.processing_time_ms != null ? r.processing_time_ms + 'ms' : '-'}</td>
+            <td>${r.prompt_tokens != null ? r.prompt_tokens : '-'}</td>
+            <td>${r.completion_tokens != null ? r.completion_tokens : '-'}</td>
             <td>${r.status_code || '-'}</td>
             <td>${r.streamed ? '✅' : '❌'}</td>
             <td>${r.error || '-'}</td>

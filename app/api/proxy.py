@@ -93,6 +93,8 @@ def _record_completion(context: RequestContext):
         processing_time_ms=proc_ms,
         status_code=context.response_status,
         streamed=context.streamed,
+        prompt_tokens=context.prompt_tokens,
+        completion_tokens=context.completion_tokens,
         error=context.error,
         client_ip=context.client_ip,
     )
@@ -109,8 +111,8 @@ async def _save_log(context: RequestContext, wait_ms: int, proc_ms: int):
                (request_id, user_name, endpoint, model, priority,
                 enqueue_time, dequeue_time, complete_time,
                 wait_time_ms, processing_time_ms, status_code,
-                streamed, error, client_ip)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                streamed, prompt_tokens, completion_tokens, error, client_ip)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 context.request_id,
                 context.user_name,
@@ -124,6 +126,8 @@ async def _save_log(context: RequestContext, wait_ms: int, proc_ms: int):
                 proc_ms,
                 context.response_status,
                 1 if context.streamed else 0,
+                context.prompt_tokens,
+                context.completion_tokens,
                 context.error,
                 context.client_ip,
             ),

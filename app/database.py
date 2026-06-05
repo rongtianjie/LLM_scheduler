@@ -51,11 +51,19 @@ async def _init_tables(db: aiosqlite.Connection):
             processing_time_ms INTEGER,
             status_code       INTEGER,
             streamed          INTEGER,
+            prompt_tokens     INTEGER,
+            completion_tokens INTEGER,
             error             TEXT,
             client_ip         TEXT,
             created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+    # Migration: add token columns for existing databases
+    for col in ("prompt_tokens", "completion_tokens"):
+        try:
+            await db.execute(f"ALTER TABLE request_logs ADD COLUMN {col} INTEGER")
+        except Exception:
+            pass
     await db.commit()
 
 

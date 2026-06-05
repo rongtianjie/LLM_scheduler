@@ -7,6 +7,22 @@ from app.adapters.base import BaseAdapter
 from app.models import RequestContext
 
 
+def _parse_token_chunk(chunk: bytes, context: RequestContext):
+    """Try to extract token usage from an SSE chunk (OpenAI format)."""
+    try:
+        text = chunk.decode("utf-8", errors="replace")
+        for line in text.split("\n"):
+            line = line.strip()
+            if line.startswith("data: ") and line != "data: [DONE]":
+                data = json.loads(line[6:])
+                usage = data.get("usage")
+                if usage:
+                    context.prompt_tokens = usage.get("prompt_tokens", context.prompt_tokens)
+                    context.completion_tokens = usage.get("completion_tokens", context.completion_tokens)
+    except Exception:
+        pass
+
+
 class OpenAIAdapter(BaseAdapter):
     """Adapter for OpenAI-compatible /chat/completions endpoint."""
 
@@ -21,7 +37,7 @@ class OpenAIAdapter(BaseAdapter):
     async def stream(self, context: RequestContext) -> AsyncGenerator[bytes, None]:
         url = f"{self.config.base_url}{self.PATH}"
         async with httpx.AsyncClient(timeout=self.config.timeout,
-                                         trust_env=False) as client:
+                                     trust_env=False) as client:
             try:
                 async with client.stream("POST", url, json=context.body,
                                          headers=await self._headers()) as resp:
@@ -30,6 +46,7 @@ class OpenAIAdapter(BaseAdapter):
                         yield await resp.aread()
                         return
                     async for chunk in resp.aiter_bytes():
+                        _parse_token_chunk(chunk, context)
                         yield chunk
             except (httpx.TimeoutException):
                 context.response_status = 504
@@ -43,7 +60,7 @@ class OpenAIAdapter(BaseAdapter):
     async def call(self, context: RequestContext) -> Union[dict, bytes]:
         url = f"{self.config.base_url}{self.PATH}"
         async with httpx.AsyncClient(timeout=self.config.timeout,
-                                         trust_env=False) as client:
+                                     trust_env=False) as client:
             try:
                 resp = await client.post(url, json=context.body,
                                          headers=await self._headers())
@@ -51,7 +68,12 @@ class OpenAIAdapter(BaseAdapter):
                 if resp.status_code != 200:
                     context.error = f"Backend returned {resp.status_code}"
                     return resp.content
-                return resp.json()
+                data = resp.json()
+                usage = data.get("usage", {})
+                if usage:
+                    context.prompt_tokens = usage.get("prompt_tokens")
+                    context.completion_tokens = usage.get("completion_tokens")
+                return data
             except (httpx.TimeoutException):
                 context.response_status = 504
                 context.error = "Backend timeout"

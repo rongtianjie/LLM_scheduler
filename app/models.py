@@ -54,6 +54,8 @@ class RequestContext:
     response_status: Optional[int] = None
     error: Optional[str] = None
     streamed: bool = False
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
 
 
 # ── Database helpers ────────────────────────────────────────────────
