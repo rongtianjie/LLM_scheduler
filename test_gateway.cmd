@@ -1,19 +1,19 @@
 @echo off
 cd /d "%~dp0"
-title LLM Gateway 并发测试
+title LLM Gateway Load Test
 echo ========================================
-echo   LLM Gateway 并发压力测试
-echo   2 线程循环请求
+echo   LLM Gateway Concurrent Load Test
+echo   2 threads, loop requests
 echo ========================================
 echo.
-echo 网关: http://127.0.0.1:8001
-echo 按 Ctrl+C 停止测试
+echo Gateway: http://127.0.0.1:8001
+echo Press Ctrl+C to stop
 echo.
 python test_gateway.py --threads 2
 echo.
 if errorlevel 1 (
-    echo 测试失败，请确认网关已启动
+    echo Test failed - is the gateway running?
 ) else (
-    echo 测试已完成
+    echo Test complete
 )
 pause
