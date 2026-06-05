@@ -116,3 +116,9 @@ def test_admin_auth_on_admin_pages(client):
     # Admin pages should be accessible (auth disabled in test config)
     response = client.get("/admin", follow_redirects=False)
     assert response.status_code in (200, 302, 307)
+
+
+def test_models_endpoint(client):
+    """GET /v1/models returns a response (backend may be unreachable)."""
+    response = client.get("/v1/models")
+    assert response.status_code in (200, 502, 504)

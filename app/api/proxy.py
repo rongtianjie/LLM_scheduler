@@ -201,6 +201,33 @@ async def _process_request(request: Request, endpoint: str) -> Response:
         return Response(content=result, media_type="application/json")
 
 
+async def _models_list(request: Request) -> Response:
+    """Forward GET /v1/models to backend, no queueing needed."""
+    config = get_config()
+    await authenticate_request(request)
+
+    url = f"{config.backend.base_url}/models"
+    headers = {"Content-Type": "application/json"}
+    if config.backend.api_key:
+        headers["Authorization"] = f"Bearer {config.backend.api_key}"
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=config.backend.timeout) as client:
+            resp = await client.get(url, headers=headers)
+            return Response(content=resp.content, status_code=resp.status_code,
+                            media_type="application/json")
+    except (httpx.ConnectError, OSError):
+        return JSONResponse(status_code=502, content={"error": "Backend unreachable"})
+    except httpx.TimeoutException:
+        return JSONResponse(status_code=504, content={"error": "Backend timeout"})
+
+
+@router.get("/v1/models")
+async def models(request: Request):
+    return await _models_list(request)
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     return await _process_request(request, "/v1/chat/completions")
