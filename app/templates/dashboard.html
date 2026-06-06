@@ -47,7 +47,23 @@
     </div>
 </div>
 
-<h3 style="margin-bottom:12px">Per API Key</h3>
+<!-- Charts -->
+<div class="charts-grid">
+    <div class="chart-card">
+        <h3>Requests Over Time</h3>
+        <div class="chart-container">
+            <canvas id="requestsChart"></canvas>
+        </div>
+    </div>
+    <div class="chart-card">
+        <h3>Tokens Over Time</h3>
+        <div class="chart-container">
+            <canvas id="tokensChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<h3 style="margin-bottom:12px;font-size:15px;font-weight:700;">Per API Key</h3>
 <table class="table">
     <thead>
         <tr>
@@ -61,14 +77,147 @@
     <tbody id="per-key-body"></tbody>
 </table>
 
+<script src="/static/chart.umd.min.js"></script>
 <script>
 let currentPeriod = '24h';
+let requestsChart, tokensChart;
 
 function setPeriod(p) {
     currentPeriod = p;
     document.querySelectorAll('.period-selector .btn').forEach(b => b.classList.remove('btn-primary'));
     document.getElementById('period-' + p)?.classList.add('btn-primary');
     refreshDashboard();
+    refreshCharts();
+}
+
+function formatLabel(ts) {
+    const d = new Date(ts);
+    if (currentPeriod === '1h' || currentPeriod === '6h' || currentPeriod === '24h') {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function makeGradient(ctx, color1, color2) {
+    const g = ctx.createLinearGradient(0, 0, 0, 220);
+    g.addColorStop(0, color1);
+    g.addColorStop(1, color2);
+    return g;
+}
+
+function initCharts() {
+    const rCtx = document.getElementById('requestsChart').getContext('2d');
+    requestsChart = new Chart(rCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Requests',
+                data: [],
+                borderColor: '#667eea',
+                backgroundColor: makeGradient(rCtx, 'rgba(102,126,234,0.2)', 'rgba(102,126,234,0)'),
+                borderWidth: 2,
+                fill: true,
+                tension: 0.35,
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                pointHoverBackgroundColor: '#667eea',
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 10 }, color: '#8892a8', maxRotation: 0, maxTicksLimit: 8 }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 10 }, color: '#8892a8', precision: 0 }
+                }
+            },
+            interaction: { intersect: false, mode: 'index' }
+        }
+    });
+
+    const tCtx = document.getElementById('tokensChart').getContext('2d');
+    tokensChart = new Chart(tCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Prompt Tokens',
+                    data: [],
+                    borderColor: '#667eea',
+                    backgroundColor: makeGradient(tCtx, 'rgba(102,126,234,0.15)', 'rgba(102,126,234,0)'),
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                },
+                {
+                    label: 'Completion Tokens',
+                    data: [],
+                    borderColor: '#764ba2',
+                    backgroundColor: makeGradient(tCtx, 'rgba(118,75,162,0.15)', 'rgba(118,75,162,0)'),
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: { boxWidth: 10, font: { size: 11 }, color: '#8892a8', usePointStyle: true }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 10 }, color: '#8892a8', maxRotation: 0, maxTicksLimit: 8 }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 10 }, color: '#8892a8' }
+                }
+            },
+            interaction: { intersect: false, mode: 'index' }
+        }
+    });
+}
+
+async function refreshCharts() {
+    try {
+        const res = await fetch('/admin/api/stats/timeseries?period=' + currentPeriod);
+        const data = await res.json();
+        const labels = data.buckets.map(b => formatLabel(b.timestamp));
+
+        requestsChart.data.labels = labels;
+        requestsChart.data.datasets[0].data = data.buckets.map(b => b.requests);
+        requestsChart.update('none');
+
+        tokensChart.data.labels = labels;
+        tokensChart.data.datasets[0].data = data.buckets.map(b => b.prompt_tokens);
+        tokensChart.data.datasets[1].data = data.buckets.map(b => b.completion_tokens);
+        tokensChart.update('none');
+    } catch (e) {
+        console.error('Failed to refresh charts:', e);
+    }
 }
 
 async function refreshDashboard() {
@@ -106,6 +255,8 @@ async function refreshDashboard() {
     }
 }
 
+initCharts();
+refreshCharts();
 setInterval(refreshDashboard, 3000);
 refreshDashboard();
 </script>

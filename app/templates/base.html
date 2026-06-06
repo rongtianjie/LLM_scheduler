@@ -7,21 +7,40 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    <div class="top-accent"></div>
     <div class="layout">
         <nav class="sidebar">
             <div class="sidebar-header">
                 <h1>LLM Gateway</h1>
+                <span class="sidebar-subtitle">Admin Console</span>
             </div>
             <ul class="nav-links">
-                <li><a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}">Dashboard</a></li>
-                <li><a href="/admin/api-keys" class="{% if request.url.path == '/admin/api-keys' %}active{% endif %}">API Keys</a></li>
-                <li><a href="/admin/logs" class="{% if request.url.path == '/admin/logs' %}active{% endif %}">Logs</a></li>
-                <li><a href="/admin/management" class="{% if request.url.path == '/admin/management' %}active{% endif %}">Management</a></li>
+                <li><a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}"><span class="nav-icon">◉</span> Dashboard</a></li>
+                <li><a href="/admin/api-keys" class="{% if request.url.path == '/admin/api-keys' %}active{% endif %}"><span class="nav-icon">⚿</span> API Keys</a></li>
+                <li><a href="/admin/logs" class="{% if request.url.path == '/admin/logs' %}active{% endif %}"><span class="nav-icon">☰</span> Logs</a></li>
+                <li><a href="/admin/management" class="{% if request.url.path == '/admin/management' %}active{% endif %}"><span class="nav-icon">⚙</span> Management</a></li>
             </ul>
+            <div class="sidebar-footer">
+                <span class="sidebar-user">{{ request.session.get('username', 'admin') }}</span>
+                <a href="/admin/logout" class="logout-link">Logout</a>
+            </div>
         </nav>
         <main class="content">
             {% block content %}{% endblock %}
         </main>
     </div>
+    <script>
+    // Global 401 handler: redirect to login on auth failure
+    const _origFetch = window.fetch;
+    window.fetch = function(...args) {
+        return _origFetch.apply(this, args).then(res => {
+            if (res.status === 401) {
+                window.location.href = '/admin/login';
+                return new Promise(() => {}); // hang to prevent further processing
+            }
+            return res;
+        });
+    };
+    </script>
 </body>
 </html>

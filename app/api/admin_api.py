@@ -22,8 +22,8 @@ router = APIRouter()
 
 
 async def _admin_auth(request: Request):
-    from app.core.auth import verify_admin
-    return await verify_admin(request=request)
+    from app.core.auth import require_admin_api
+    return await require_admin_api(request=request)
 
 
 @router.get("/queue", response_model=QueueStatus)
@@ -205,6 +205,86 @@ async def get_stats(request: Request, _=Depends(_admin_auth),
         "total_completion_tokens": total_completion_tokens,
         "errors": errors,
         "per_key": per_key,
+    }
+
+
+# ── Timeseries stats ────────────────────────────────────────────────
+
+# Bucket interval per period
+_INTERVAL_MAP = {
+    "1h":  ("%Y-%m-%dT%H:%M:00Z", 300),     # 5 minutes
+    "6h":  ("%Y-%m-%dT%H:00:00Z", 1800),    # 30 minutes
+    "24h": ("%Y-%m-%dT%H:00:00Z", 3600),    # 1 hour
+    "7d":  ("%Y-%m-%dT%H:00:00Z", 21600),   # 6 hours
+    "30d": ("%Y-%m-%dT00:00:00Z", 86400),   # 1 day
+    "all": ("%Y-%m-%dT00:00:00Z", 86400),   # 1 day
+}
+
+
+@router.get("/stats/timeseries")
+async def get_stats_timeseries(request: Request, _=Depends(_admin_auth),
+                                period: str = "24h"):
+    db = await get_db()
+
+    period_map = {
+        "1h": 3600, "6h": 21600, "24h": 86400,
+        "7d": 604800, "30d": 2592000, "all": 0,
+    }
+    cutoff_seconds = period_map.get(period, 86400)
+    if cutoff_seconds and period != "all":
+        cutoff = datetime.now(timezone.utc).timestamp() - cutoff_seconds
+        where_clause = "WHERE created_at >= datetime(?, 'unixepoch')"
+        params = [cutoff]
+    else:
+        where_clause = ""
+        params = []
+
+    cursor = await db.execute(
+        f"SELECT created_at, prompt_tokens, completion_tokens, error "
+        f"FROM request_logs {where_clause} ORDER BY created_at",
+        params,
+    )
+    rows = await cursor.fetchall()
+
+    _, interval_seconds = _INTERVAL_MAP.get(period, ("%Y-%m-%dT%H:00:00Z", 3600))
+
+    # Bucket rows in Python
+    from datetime import datetime as dt
+    buckets_dict: dict[str, dict] = {}
+
+    for row in rows:
+        ts_str = row["created_at"]
+        try:
+            ts = dt.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            continue
+        ts_epoch = ts.timestamp()
+        bucket_epoch = (ts_epoch // interval_seconds) * interval_seconds
+        bucket_ts = datetime.fromtimestamp(bucket_epoch, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        if bucket_ts not in buckets_dict:
+            buckets_dict[bucket_ts] = {
+                "timestamp": bucket_ts,
+                "requests": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "errors": 0,
+            }
+        b = buckets_dict[bucket_ts]
+        b["requests"] += 1
+        b["prompt_tokens"] += row["prompt_tokens"] or 0
+        b["completion_tokens"] += row["completion_tokens"] or 0
+        if row["error"]:
+            b["errors"] += 1
+
+    buckets = sorted(buckets_dict.values(), key=lambda x: x["timestamp"])
+    interval_labels = {"1h": "5m", "6h": "30m", "24h": "1h", "7d": "6h", "30d": "1d", "all": "1d"}
+
+    return {
+        "period": period,
+        "interval": interval_labels.get(period, "1h"),
+        "buckets": buckets,
     }
 
 

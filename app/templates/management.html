@@ -4,7 +4,7 @@
     <h2>Management</h2>
 </div>
 
-<div id="save-toast" style="display:none;position:fixed;top:20px;right:20px;background:#27ae60;color:#fff;padding:12px 20px;border-radius:6px;z-index:200;font-weight:500;">Saved successfully</div>
+<div class="toast" id="save-toast">Saved successfully</div>
 
 <form id="config-form" onsubmit="saveConfig(event)">
 
@@ -83,40 +83,6 @@
 
 </form>
 
-<style>
-.config-section {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px;
-    margin-bottom: 16px;
-}
-.config-section h3 {
-    font-size: 15px;
-    font-weight: 600;
-    margin-bottom: 16px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
-}
-.help-text {
-    display: block;
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 2px;
-}
-.checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 500;
-    cursor: pointer;
-}
-.checkbox-label input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-}
-</style>
-
 <script>
 async function loadConfig() {
     const res = await fetch('/admin/api/config');
@@ -169,8 +135,8 @@ async function saveConfig(e) {
 
     if (res.ok) {
         const toast = document.getElementById('save-toast');
-        toast.style.display = 'block';
-        setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        toast.classList.add('show');
+        setTimeout(() => { toast.classList.remove('show'); }, 3000);
     } else {
         const err = await res.json();
         alert('Save failed: ' + (err.detail || JSON.stringify(err)));

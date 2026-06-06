@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.admin_api import router as admin_api_router
 from app.api.admin_pages import router as admin_pages_router
@@ -82,6 +83,15 @@ def create_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
+    )
+
+    # Session middleware for admin login
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=config.admin.secret_key,
+        max_age=86400,  # 24 hours
+        same_site="lax",
+        https_only=False,
     )
 
     # ── Routes ────────────────────────────────────────────────────

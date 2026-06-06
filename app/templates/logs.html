@@ -50,22 +50,25 @@ async function loadLogs() {
     const res = await fetch('/admin/api/logs?' + params.toString());
     const data = await res.json();
     const tbody = document.getElementById('logs-table-body');
-    tbody.innerHTML = data.items.map(r => `
+    tbody.innerHTML = data.items.map(r => {
+        const sc = r.status_code;
+        const statusClass = sc >= 200 && sc < 300 ? 'status-ok' : (sc ? 'status-err' : '');
+        return `
         <tr>
             <td>${r.created_at ? new Date(r.created_at + 'Z').toLocaleTimeString() : '-'}</td>
             <td>${r.user_name || '-'}</td>
-            <td>${r.endpoint}</td>
+            <td><code>${r.endpoint}</code></td>
             <td>${r.model || '-'}</td>
             <td>${r.priority}</td>
             <td>${r.wait_time_ms != null ? r.wait_time_ms + 'ms' : '-'}</td>
             <td>${r.processing_time_ms != null ? r.processing_time_ms + 'ms' : '-'}</td>
             <td>${r.prompt_tokens != null ? r.prompt_tokens : '-'}</td>
             <td>${r.completion_tokens != null ? r.completion_tokens : '-'}</td>
-            <td>${r.status_code || '-'}</td>
+            <td class="${statusClass}">${r.status_code || '-'}</td>
             <td>${r.streamed ? '✅' : '❌'}</td>
-            <td>${r.error || '-'}</td>
+            <td style="color:${r.error ? 'var(--danger)' : 'inherit'}">${r.error || '-'}</td>
         </tr>
-    `).join('');
+    `}).join('');
 
     const totalPages = Math.ceil(data.total / data.per_page);
     document.getElementById('pagination').innerHTML = Array.from({length: totalPages}, (_, i) => {

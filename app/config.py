@@ -19,6 +19,7 @@ class AdminConfig(BaseModel):
     enabled: bool = True
     username: str = "admin"
     password: str = "admin123"
+    secret_key: str = "llm-gateway-default-secret"
 
 
 class DatabaseConfig(BaseModel):
