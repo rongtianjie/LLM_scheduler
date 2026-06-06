@@ -3,6 +3,13 @@
 ## Overview
 An LLM API gateway proxy with priority queuing, concurrency control, API key authentication, structured logging, Prometheus metrics, and an embedded admin dashboard.
 
+## Interaction Rules
+
+在执行任务前，必须先问我问题。要求：
+- 一次只问一个问题
+- 根据我的回答，继续追问
+- 直到你有 95% 的信心理解我的真实需求和目标，然后才给出方案
+
 ## Architecture
 - **FastAPI** single-process application on port 8001
 - **Priority queue** with concurrency=1 (`asyncio.Condition`-based)
