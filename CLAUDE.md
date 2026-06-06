@@ -12,8 +12,8 @@ An LLM API gateway proxy with priority queuing, concurrency control, API key aut
 
 ## Architecture
 - **FastAPI** single-process application on port 8001
-- **Priority queue** with concurrency=1 (`asyncio.Condition`-based)
-- **Single backend** supporting both OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) formats
+- **Priority queue** with configurable concurrency (`asyncio.Condition`-based)
+- **Separate backend configs** for OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`)
 - **SQLite** for API key storage and request logging
 - **Jinja2** admin dashboard (`, /admin/api-keys`, `/admin/logs`)
 - **Prometheus** metrics at `/metrics`
@@ -31,7 +31,7 @@ An LLM API gateway proxy with priority queuing, concurrency control, API key aut
 | `app/core/metrics.py` | Prometheus metric definitions |
 | `app/adapters/openai.py` | OpenAI-format adapter |
 | `app/adapters/anthropic.py` | Anthropic-format adapter |
-| `app/strategies/*.py` | Priority strategy (api_key, ip_based) |
+| `app/strategies/*.py` | Priority strategy (api_key) |
 | `app/api/proxy.py` | `/v1/chat/completions`, `/v1/messages` |
 | `app/api/admin_api.py` | Admin REST API |
 | `app/api/admin_pages.py` | Admin page routes |
@@ -68,14 +68,11 @@ docker-compose up -d
 uv run pytest tests/
 ```
 
-## Configuration (config.yaml)
+## Configuration
 
-See `config.yaml` for all options. Key settings:
-- `server.port` — listen port (default: 8001)
-- `auth.enabled` — require API Key Bearer auth
-- `queue.max_length` — max queue depth before 429
-- `priority.strategy` — `"api_key"` or `"ip_based"`
-- `backend.base_url` — single backend endpoint
+`config.yaml` contains bootstrap-only settings (server, auth, admin, database, logging).
+Runtime settings (queue, backends, debug, metrics) are managed through the admin page
+at `/admin/management`. Default values are in `app/config.py`.
 
 ## API Endpoints
 
@@ -103,8 +100,9 @@ See `config.yaml` for all options. Key settings:
 | `DELETE /admin/api/keys/{id}` | Delete API key |
 | `GET /admin/api/stats` | Dashboard stats (supports `?period=24h&key_id=1`) |
 | `GET /admin/api/logs` | Query logs (paginated, includes token columns) |
-| `GET /admin/api/config` | Get runtime config (queue, priority, backend, debug, metrics) |
+| `GET /admin/api/config` | Get runtime config (queue, openai_backend, anthropic_backend, debug, metrics) |
 | `PUT /admin/api/config` | Update runtime config (applies immediately) |
+| `POST /admin/api/config/sync-openai-to-anthropic` | Copy OpenAI backend config to Anthropic |
 
 ## Request Flow
 
@@ -118,7 +116,6 @@ See `config.yaml` for all options. Key settings:
 
 - Lower number = higher priority
 - `api_key` strategy: priority from API key record in SQLite
-- `ip_based` strategy: priority from `priority.ip_mapping` (supports CIDR)
 - Default priority: 100
 
 ## Stream Passthrough

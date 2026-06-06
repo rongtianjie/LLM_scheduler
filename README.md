@@ -4,9 +4,9 @@
 
 ## 功能特性
 
-- **双协议兼容**：同时支持 OpenAI 和 Anthropic API 格式，后端只需一个服务
-- **优先级队列**：根据 API Key 或来源 IP 分配优先级，高优先级请求插队
-- **并发控制**：单工作槽（concurrency=1），队列满返回 429
+- **双协议兼容**：同时支持 OpenAI 和 Anthropic API 格式，可独立配置后端地址
+- **优先级队列**：根据 API Key 分配优先级，高优先级请求插队
+- **并发控制**：可配置并发数（concurrency），队列满返回 429
 - **流式透传**：SSE 事件流原样转发，不解析不修改
 - **Token 统计**：自动记录每次请求的输入/输出 token 数（流式 + 非流式）
 - **Debug 模式**：开启后将完整请求/响应体保存到磁盘，便于排查问题
@@ -26,7 +26,8 @@ uv sync
 
 # 2. 编辑配置（config.local.yaml 会自动覆盖 config.yaml）
 cp config.yaml config.local.yaml
-# 修改 backend.base_url、backend.api_key 等
+# 修改 openai_backend.base_url、anthropic_backend.base_url 等（也可启动后在管理页面配置）
+# 不配置的值将使用代码默认值
 
 # 3. 启动（自动使用虚拟环境）
 uv run python -m app.main
@@ -36,7 +37,7 @@ uv run python -m app.main
 
 ```bash
 # 1. 编辑配置文件
-vim config.yaml  # 修改 backend 配置
+vim config.yaml  # 修改启动配置（server、admin 账号等）
 
 # 2. 启动
 docker-compose up -d
@@ -62,31 +63,27 @@ docker run -d \
 
 ## 配置说明
 
-完整配置项见 `config.yaml`，关键配置：
+`config.yaml` 仅包含启动级配置（server、auth、admin、database、logging），运行时配置（队列、后端、Debug、Metrics）通过管理页面控制。默认值见 `app/config.py`。
 
 ```yaml
 server:
-  port: 8001                     # 监听端口
   host: "0.0.0.0"
+  port: 8001
 
 auth:
-  enabled: true                  # 启用 API Key 认证
+  enabled: true                  # API Key 认证开关
 
-queue:
-  max_length: 5                  # 队列最大长度，超过返回 429
+admin:
+  enabled: true
+  username: "admin"
+  password: "admin123"
 
-priority:
-  strategy: "api_key"            # 优先级策略：api_key | ip_based
-  default_priority: 100          # 默认优先级（越小越优先）
+database:
+  path: "data/gateway.db"
 
-backend:
-  base_url: "http://localhost:11434/v1"  # 后端 LLM 服务地址
-  api_key: "sk-xxx"                      # 后端认证 Key
-  timeout: 300                            # 请求超时（秒）
-
-debug:
-  enabled: false                         # 开启后记录完整请求/响应到 data/debug/
-  dir: "data/debug"                      # debug 日志目录
+logging:
+  level: "INFO"
+  format: "json"                 # "json" | "text"
 ```
 
 ## API 使用
@@ -148,7 +145,7 @@ curl "http://localhost:8001/admin/api/stats?period=24h" \
 - **Dashboard**：实时队列状态、请求统计，支持时间范围选择（1h/6h/24h/7d/30d），按 API Key 展示请求数和 Token 用量
 - **API Keys**：创建/编辑/删除 API Key，创建时显示完整 Key 并支持一键复制
 - **Logs**：查看请求历史，含 Token 用量列，支持按用户和端点筛选分页
-- **Management**：运行时配置管理（队列、优先级、后端、Debug、Metrics），修改后立即生效
+- **Management**：运行时配置管理（队列、OpenAI 后端、Anthropic 后端、Debug、Metrics），修改后立即生效；Anthropic 面板提供「Sync」一键同步 OpenAI 配置
 
 ## 队列行为
 
@@ -186,9 +183,8 @@ app/
 │   ├── openai.py        # OpenAI 适配器
 │   └── anthropic.py     # Anthropic 适配器
 ├── strategies/
-│   ├── base.py          # 策略抽象
-│   ├── ip_based.py      # IP 优先级
-│   └── api_key_based.py # API Key 优先级
+│   ├── base.py               # 策略抽象
+│   └── api_key_based.py      # API Key 优先级
 ├── templates/           # Jinja2 页面模板
 └── static/              # 静态资源
 ```
