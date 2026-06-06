@@ -25,18 +25,12 @@
         <label>Strategy</label>
         <select id="priority-strategy">
             <option value="api_key">API Key</option>
-            <option value="ip_based">IP Based</option>
         </select>
     </div>
     <div class="form-group">
         <label>Default Priority</label>
         <input type="number" id="priority-default" min="1" max="1000" required>
         <span class="help-text">Lower number = higher priority</span>
-    </div>
-    <div class="form-group">
-        <label>IP Mapping (YAML)</label>
-        <textarea id="priority-ip-mapping" rows="4" style="font-family:monospace;font-size:12px"></textarea>
-        <span class="help-text">e.g. "192.168.1.100": 1 (one per line, CIDR supported)</span>
     </div>
 </section>
 
@@ -132,7 +126,6 @@ async function loadConfig() {
 
     document.getElementById('priority-strategy').value = cfg.priority.strategy;
     document.getElementById('priority-default').value = cfg.priority.default_priority;
-    document.getElementById('priority-ip-mapping').value = yamlify(cfg.priority.ip_mapping || {});
 
     document.getElementById('backend-base-url').value = cfg.backend.base_url;
     document.getElementById('backend-api-key').value = cfg.backend.api_key;
@@ -144,21 +137,6 @@ async function loadConfig() {
     document.getElementById('metrics-enabled').checked = cfg.metrics.enabled;
 }
 
-function yamlify(obj) {
-    return Object.entries(obj).map(([k, v]) => `"${k}": ${v}`).join('\n');
-}
-
-function parseIpMapping(text) {
-    const obj = {};
-    text.split('\n').forEach(line => {
-        line = line.trim();
-        if (!line) return;
-        const m = line.match(/["']?(.+?)["']?\s*:\s*(\d+)/);
-        if (m) obj[m[1]] = parseInt(m[2]);
-    });
-    return obj;
-}
-
 async function saveConfig(e) {
     e.preventDefault();
     const body = {
@@ -168,7 +146,6 @@ async function saveConfig(e) {
         priority: {
             strategy: document.getElementById('priority-strategy').value,
             default_priority: parseInt(document.getElementById('priority-default').value),
-            ip_mapping: parseIpMapping(document.getElementById('priority-ip-mapping').value),
         },
         backend: {
             base_url: document.getElementById('backend-base-url').value,

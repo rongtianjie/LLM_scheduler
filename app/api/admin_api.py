@@ -274,7 +274,6 @@ class MutableQueue(BaseModel):
 class MutablePriority(BaseModel):
     strategy: Optional[str] = None
     default_priority: Optional[int] = None
-    ip_mapping: Optional[dict] = None
 
 
 class MutableBackend(BaseModel):
@@ -309,7 +308,6 @@ async def get_config_admin(request: Request, _=Depends(_admin_auth)):
         "priority": {
             "strategy": cfg.priority.strategy,
             "default_priority": cfg.priority.default_priority,
-            "ip_mapping": cfg.priority.ip_mapping,
         },
         "backend": {
             "base_url": cfg.backend.base_url,
@@ -343,9 +341,6 @@ async def update_config_admin(body: MutableConfig, request: Request,
         if body.priority.default_priority is not None:
             cfg.priority.default_priority = body.priority.default_priority
             changed.append("priority.default_priority")
-        if body.priority.ip_mapping is not None:
-            cfg.priority.ip_mapping = body.priority.ip_mapping
-            changed.append("priority.ip_mapping")
         # Recreate strategy if strategy name changed
         if body.priority.strategy is not None:
             from app.strategies.factory import create_strategy

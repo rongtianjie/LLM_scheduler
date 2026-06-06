@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import yaml
 from pydantic import BaseModel
@@ -31,9 +31,8 @@ class QueueConfig(BaseModel):
 
 
 class PriorityConfig(BaseModel):
-    strategy: str = "api_key"  # "api_key" | "ip_based"
+    strategy: str = "api_key"  # reserved for future strategy selection
     default_priority: int = 100
-    ip_mapping: Dict[str, int] = {}
 
 
 class BackendConfig(BaseModel):

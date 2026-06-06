@@ -18,11 +18,8 @@ queue:
   concurrency: 1
 
 priority:
-  strategy: "api_key"  # "api_key" | "ip_based"
+  strategy: "api_key"  # reserved for future strategy selection
   default_priority: 100
-  ip_mapping:
-    "192.168.1.100": 1
-    "10.0.0.0/24": 50
 
 backend:
   base_url: "http://localhost:11434/v1"

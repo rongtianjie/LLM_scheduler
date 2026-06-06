@@ -31,11 +31,7 @@ async def test_authenticate_valid_key(queue_with_auth):
 @pytest.mark.asyncio
 async def test_priority_strategy_factory():
     from app.strategies.factory import create_strategy
-    from app.strategies.ip_based import IPPriorityStrategy
     from app.strategies.api_key_based import ApiKeyPriorityStrategy
-
-    ip = create_strategy("ip_based")
-    assert isinstance(ip, IPPriorityStrategy)
 
     ak = create_strategy("api_key")
     assert isinstance(ak, ApiKeyPriorityStrategy)
@@ -76,13 +72,3 @@ def test_config_no_local(tmp_path):
     assert len(cfg._loaded_files) == 1
 
 
-@pytest.mark.asyncio
-async def test_ip_strategy_matching(config):
-    """IP strategy matches exact and CIDR patterns."""
-    from app.strategies.ip_based import IPPriorityStrategy
-    strategy = IPPriorityStrategy()
-
-    assert strategy._ip_matches("192.168.1.100", "192.168.1.100")
-    assert strategy._ip_matches("10.0.0.5", "10.0.0.0/24")
-    assert not strategy._ip_matches("192.168.1.200", "192.168.1.100")
-    assert not strategy._ip_matches("10.1.0.5", "10.0.0.0/24")

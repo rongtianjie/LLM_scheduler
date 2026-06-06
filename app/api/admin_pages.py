@@ -13,19 +13,19 @@ async def _admin_auth(request: Request):
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(request: Request, _=Depends(_admin_auth)):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "dashboard.html")
 
 
 @router.get("/admin/api-keys", response_class=HTMLResponse)
 async def admin_api_keys(request: Request, _=Depends(_admin_auth)):
-    return templates.TemplateResponse("api_keys.html", {"request": request})
+    return templates.TemplateResponse(request, "api_keys.html")
 
 
 @router.get("/admin/logs", response_class=HTMLResponse)
 async def admin_logs(request: Request, _=Depends(_admin_auth)):
-    return templates.TemplateResponse("logs.html", {"request": request})
+    return templates.TemplateResponse(request, "logs.html")
 
 
 @router.get("/admin/management", response_class=HTMLResponse)
 async def admin_management(request: Request, _=Depends(_admin_auth)):
-    return templates.TemplateResponse("management.html", {"request": request})
+    return templates.TemplateResponse(request, "management.html")
