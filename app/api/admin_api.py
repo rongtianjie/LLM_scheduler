@@ -349,6 +349,7 @@ async def get_logs(request: Request, _=Depends(_admin_auth),
 
 class MutableQueue(BaseModel):
     max_length: Optional[int] = None
+    concurrency: Optional[int] = None
 
 
 class MutablePriority(BaseModel):
@@ -407,11 +408,15 @@ async def update_config_admin(body: MutableConfig, request: Request,
     changed = []
 
     # Queue
-    if body.queue and body.queue.max_length is not None:
-        cfg.queue.max_length = body.queue.max_length
-        q = get_queue()
-        q._max_size = body.queue.max_length
-        changed.append("queue.max_length")
+    if body.queue:
+        if body.queue.max_length is not None:
+            cfg.queue.max_length = body.queue.max_length
+            q = get_queue()
+            q._max_size = body.queue.max_length
+            changed.append("queue.max_length")
+        if body.queue.concurrency is not None:
+            cfg.queue.concurrency = body.queue.concurrency
+            changed.append("queue.concurrency")
 
     # Priority
     if body.priority:

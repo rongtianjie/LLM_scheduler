@@ -14,26 +14,6 @@ admin:
 database:
   path: "data/gateway.db"
 
-queue:
-  max_length: 5
-  concurrency: 1
-
-priority:
-  strategy: "api_key"  # reserved for future strategy selection
-  default_priority: 100
-
-backend:
-  base_url: "http://localhost:11434/v1"
-  api_key: "sk-backend-key"
-  timeout: 300
-
 logging:
   level: "INFO"
   format: "json"  # "json" | "text"
-
-debug:
-  enabled: false
-  dir: "data/debug"
-
-metrics:
-  enabled: true

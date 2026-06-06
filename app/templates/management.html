@@ -16,6 +16,11 @@
         <input type="number" id="queue-max-length" min="1" max="100" required>
         <span class="help-text">Maximum number of requests waiting in queue (beyond this returns 429)</span>
     </div>
+    <div class="form-group">
+        <label>Concurrency</label>
+        <input type="number" id="queue-concurrency" min="1" max="100" required>
+        <span class="help-text">Number of requests processed simultaneously</span>
+    </div>
 </section>
 
 <!-- Priority -->
@@ -89,6 +94,7 @@ async function loadConfig() {
     const cfg = await res.json();
 
     document.getElementById('queue-max-length').value = cfg.queue.max_length;
+    document.getElementById('queue-concurrency').value = cfg.queue.concurrency;
 
     document.getElementById('priority-strategy').value = cfg.priority.strategy;
     document.getElementById('priority-default').value = cfg.priority.default_priority;
@@ -108,6 +114,7 @@ async function saveConfig(e) {
     const body = {
         queue: {
             max_length: parseInt(document.getElementById('queue-max-length').value),
+            concurrency: parseInt(document.getElementById('queue-concurrency').value),
         },
         priority: {
             strategy: document.getElementById('priority-strategy').value,
