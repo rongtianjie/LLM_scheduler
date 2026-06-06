@@ -56,6 +56,22 @@ class MetricsConfig(BaseModel):
     enabled: bool = True
 
 
+class ProxyConfig(BaseModel):
+    enabled: bool = False
+    protocol: str = "http"   # "http" | "https" | "socks5"
+    host: str = ""
+    port: int = 0
+    username: str = ""
+    password: str = ""
+
+    def to_url(self) -> str:
+        """Build proxy URL string, e.g. http://user:pass@host:port"""
+        if not self.enabled or not self.host:
+            return ""
+        auth = f"{self.username}:{self.password}@" if self.username else ""
+        return f"{self.protocol}://{auth}{self.host}:{self.port}"
+
+
 class AppConfig(BaseModel):
     server: ServerConfig = ServerConfig()
     auth: AuthConfig = AuthConfig()
@@ -68,6 +84,7 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     debug: DebugConfig = DebugConfig()
     metrics: MetricsConfig = MetricsConfig()
+    proxy: ProxyConfig = ProxyConfig()
 
 
 _config: Optional[AppConfig] = None

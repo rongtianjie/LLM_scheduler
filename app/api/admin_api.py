@@ -372,6 +372,15 @@ class MutableMetrics(BaseModel):
     enabled: Optional[bool] = None
 
 
+class MutableProxy(BaseModel):
+    enabled: Optional[bool] = None
+    protocol: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
 class MutableConfig(BaseModel):
     queue: Optional[MutableQueue] = None
     priority: Optional[MutablePriority] = None
@@ -379,6 +388,7 @@ class MutableConfig(BaseModel):
     anthropic_backend: Optional[MutableBackend] = None
     debug: Optional[MutableDebug] = None
     metrics: Optional[MutableMetrics] = None
+    proxy: Optional[MutableProxy] = None
 
 
 def _apply_backend(config: BackendConfig, mutable: MutableBackend, prefix: str, changed: list):
@@ -396,12 +406,14 @@ def _apply_backend(config: BackendConfig, mutable: MutableBackend, prefix: str, 
 def _recreate_adapter(adapter_name: str, backend_config: BackendConfig):
     """Recreate a single adapter module-level variable."""
     import app.api.proxy as proxy_module
+    from app.config import get_config
+    proxy_url = get_config().proxy.to_url()
     if adapter_name == "openai":
         from app.adapters.openai import OpenAIAdapter
-        proxy_module._openai_adapter = OpenAIAdapter(backend_config)
+        proxy_module._openai_adapter = OpenAIAdapter(backend_config, proxy_url=proxy_url)
     elif adapter_name == "anthropic":
         from app.adapters.anthropic import AnthropicAdapter
-        proxy_module._anthropic_adapter = AnthropicAdapter(backend_config)
+        proxy_module._anthropic_adapter = AnthropicAdapter(backend_config, proxy_url=proxy_url)
 
 
 @router.get("/config")
@@ -426,6 +438,14 @@ async def get_config_admin(request: Request, _=Depends(_admin_auth)):
         },
         "debug": {"enabled": cfg.debug.enabled, "dir": cfg.debug.dir},
         "metrics": {"enabled": cfg.metrics.enabled},
+        "proxy": {
+            "enabled": cfg.proxy.enabled,
+            "protocol": cfg.proxy.protocol,
+            "host": cfg.proxy.host,
+            "port": cfg.proxy.port,
+            "username": cfg.proxy.username,
+            "password": cfg.proxy.password,
+        },
     }
 
 
@@ -485,6 +505,30 @@ async def update_config_admin(body: MutableConfig, request: Request,
         if body.metrics.enabled is not None:
             cfg.metrics.enabled = body.metrics.enabled
             changed.append("metrics.enabled")
+
+    # Proxy
+    if body.proxy:
+        if body.proxy.enabled is not None:
+            cfg.proxy.enabled = body.proxy.enabled
+            changed.append("proxy.enabled")
+        if body.proxy.protocol is not None:
+            cfg.proxy.protocol = body.proxy.protocol
+            changed.append("proxy.protocol")
+        if body.proxy.host is not None:
+            cfg.proxy.host = body.proxy.host
+            changed.append("proxy.host")
+        if body.proxy.port is not None:
+            cfg.proxy.port = body.proxy.port
+            changed.append("proxy.port")
+        if body.proxy.username is not None:
+            cfg.proxy.username = body.proxy.username
+            changed.append("proxy.username")
+        if body.proxy.password is not None:
+            cfg.proxy.password = body.proxy.password
+            changed.append("proxy.password")
+        # Recreate both adapters with new proxy config
+        _recreate_adapter("openai", cfg.openai_backend)
+        _recreate_adapter("anthropic", cfg.anthropic_backend)
 
     import structlog
     logger = structlog.get_logger()

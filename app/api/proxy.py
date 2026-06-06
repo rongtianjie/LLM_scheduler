@@ -38,8 +38,9 @@ def _ensure_adapters():
     global _openai_adapter, _anthropic_adapter, _strategy
     if _openai_adapter is None:
         config = get_config()
-        _openai_adapter = OpenAIAdapter(config.openai_backend)
-        _anthropic_adapter = AnthropicAdapter(config.anthropic_backend)
+        proxy_url = config.proxy.to_url()
+        _openai_adapter = OpenAIAdapter(config.openai_backend, proxy_url=proxy_url)
+        _anthropic_adapter = AnthropicAdapter(config.anthropic_backend, proxy_url=proxy_url)
         _strategy = create_strategy(config.priority.strategy)
 
 

@@ -6,99 +6,157 @@
 
 <div class="toast" id="save-toast">Saved successfully</div>
 
+<!-- Tabs -->
+<div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('scheduling', this)">
+        <span class="tab-icon">⚡</span> Scheduling
+    </button>
+    <button class="tab-btn" onclick="switchTab('backend', this)">
+        <span class="tab-icon">🔗</span> Backend
+    </button>
+    <button class="tab-btn" onclick="switchTab('system', this)">
+        <span class="tab-icon">🛠</span> System
+    </button>
+</div>
+
 <form id="config-form" onsubmit="saveConfig(event)">
 
-<!-- Queue -->
-<section class="config-section">
-    <h3>Queue</h3>
-    <div class="form-group">
-        <label>Max Length</label>
-        <input type="number" id="queue-max-length" min="1" max="100" required>
-        <span class="help-text">Maximum number of requests waiting in queue (beyond this returns 429)</span>
-    </div>
-    <div class="form-group">
-        <label>Concurrency</label>
-        <input type="number" id="queue-concurrency" min="1" max="100" required>
-        <span class="help-text">Number of requests processed simultaneously</span>
-    </div>
-</section>
+<!-- ═══ Tab: Scheduling ═══ -->
+<div class="tab-panel active" id="tab-scheduling">
+    <section class="config-section">
+        <h3>Queue</h3>
+        <div class="form-group">
+            <label>Max Length</label>
+            <input type="number" id="queue-max-length" min="1" max="100" required>
+            <span class="help-text">Maximum number of requests waiting in queue (beyond this returns 429)</span>
+        </div>
+        <div class="form-group">
+            <label>Concurrency</label>
+            <input type="number" id="queue-concurrency" min="1" max="100" required>
+            <span class="help-text">Number of requests processed simultaneously</span>
+        </div>
+    </section>
 
-<!-- Priority -->
-<section class="config-section">
-    <h3>Priority</h3>
-    <div class="form-group">
-        <label>Strategy</label>
-        <select id="priority-strategy">
-            <option value="api_key">API Key</option>
-        </select>
-    </div>
-    <div class="form-group">
-        <label>Default Priority</label>
-        <input type="number" id="priority-default" min="1" max="1000" required>
-        <span class="help-text">Lower number = higher priority</span>
-    </div>
-</section>
+    <section class="config-section">
+        <h3>Priority</h3>
+        <div class="form-group">
+            <label>Strategy</label>
+            <select id="priority-strategy">
+                <option value="api_key">API Key</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Default Priority</label>
+            <input type="number" id="priority-default" min="1" max="1000" required>
+            <span class="help-text">Lower number = higher priority</span>
+        </div>
+    </section>
+</div>
 
-<!-- OpenAI Backend -->
-<section class="config-section">
-    <h3>OpenAI Backend</h3>
-    <div class="form-group">
-        <label>Base URL</label>
-        <input type="text" id="openai-backend-base-url" required>
-    </div>
-    <div class="form-group">
-        <label>API Key</label>
-        <input type="password" id="openai-backend-api-key">
-    </div>
-    <div class="form-group">
-        <label>Timeout (seconds)</label>
-        <input type="number" id="openai-backend-timeout" min="1" max="3600" required>
-    </div>
-</section>
+<!-- ═══ Tab: Backend ═══ -->
+<div class="tab-panel" id="tab-backend">
+    <section class="config-section">
+        <h3>OpenAI Backend</h3>
+        <div class="form-group">
+            <label>Base URL</label>
+            <input type="text" id="openai-backend-base-url" required>
+        </div>
+        <div class="form-group">
+            <label>API Key</label>
+            <input type="password" id="openai-backend-api-key">
+        </div>
+        <div class="form-group">
+            <label>Timeout (seconds)</label>
+            <input type="number" id="openai-backend-timeout" min="1" max="3600" required>
+        </div>
+    </section>
 
-<!-- Anthropic Backend -->
-<section class="config-section">
-    <h3>Anthropic Backend</h3>
-    <div class="form-group" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <label style="flex:none">Base URL</label>
-        <input type="text" id="anthropic-backend-base-url" required style="flex:1">
-        <button type="button" id="sync-backend-btn" class="btn" style="flex:none;padding:6px 12px;font-size:12px;white-space:nowrap" title="Copy OpenAI config to Anthropic">↻ Sync</button>
-    </div>
-    <div class="form-group">
-        <label>API Key</label>
-        <input type="password" id="anthropic-backend-api-key">
-    </div>
-    <div class="form-group">
-        <label>Timeout (seconds)</label>
-        <input type="number" id="anthropic-backend-timeout" min="1" max="3600" required>
-    </div>
-</section>
+    <section class="config-section">
+        <div class="section-header">
+            <h3>Anthropic Backend</h3>
+            <button type="button" id="sync-backend-btn" class="btn btn-sm" title="Copy OpenAI config to Anthropic">↻ Sync from OpenAI</button>
+        </div>
+        <div class="form-group">
+            <label>Base URL</label>
+            <input type="text" id="anthropic-backend-base-url" required>
+        </div>
+        <div class="form-group">
+            <label>API Key</label>
+            <input type="password" id="anthropic-backend-api-key">
+        </div>
+        <div class="form-group">
+            <label>Timeout (seconds)</label>
+            <input type="number" id="anthropic-backend-timeout" min="1" max="3600" required>
+        </div>
+    </section>
+</div>
 
-<!-- Debug -->
-<section class="config-section">
-    <h3>Debug</h3>
-    <div class="form-group">
-        <label class="checkbox-label">
-            <input type="checkbox" id="debug-enabled">
-            Enabled
-        </label>
-    </div>
-    <div class="form-group">
-        <label>Directory</label>
-        <input type="text" id="debug-dir">
-    </div>
-</section>
+<!-- ═══ Tab: System ═══ -->
+<div class="tab-panel" id="tab-system">
+    <section class="config-section">
+        <h3>Debug</h3>
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="debug-enabled">
+                Enabled
+            </label>
+            <span class="help-text">When enabled, full request and response data exchanged with the LLM backend will be saved to the directory below for inspection.</span>
+        </div>
+        <div class="form-group">
+            <label>Directory</label>
+            <input type="text" id="debug-dir">
+        </div>
+    </section>
 
-<!-- Metrics -->
-<section class="config-section">
-    <h3>Metrics</h3>
-    <div class="form-group">
-        <label class="checkbox-label">
-            <input type="checkbox" id="metrics-enabled">
-            Prometheus Metrics Enabled
-        </label>
-    </div>
-</section>
+    <section class="config-section">
+        <h3>Metrics</h3>
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="metrics-enabled">
+                Prometheus Metrics Enabled
+            </label>
+        </div>
+    </section>
+
+    <section class="config-section">
+        <h3>Proxy</h3>
+        <span class="help-text" style="margin-bottom:16px;display:block">Route all backend LLM requests through a proxy server (HTTP or SOCKS5).</span>
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="proxy-enabled">
+                Enabled
+            </label>
+        </div>
+        <div class="form-row">
+            <div class="form-group" style="flex:0 0 140px">
+                <label>Protocol</label>
+                <select id="proxy-protocol">
+                    <option value="http">HTTP</option>
+                    <option value="https">HTTPS</option>
+                    <option value="socks5">SOCKS5</option>
+                </select>
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Host</label>
+                <input type="text" id="proxy-host" placeholder="e.g. 127.0.0.1">
+            </div>
+            <div class="form-group" style="flex:0 0 100px">
+                <label>Port</label>
+                <input type="number" id="proxy-port" min="1" max="65535" placeholder="8080">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Username <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+                <input type="text" id="proxy-username" placeholder="">
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Password <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+                <input type="password" id="proxy-password" placeholder="">
+            </div>
+        </div>
+    </section>
+</div>
 
 <div class="form-actions" style="margin-top:24px">
     <button type="submit" class="btn btn-primary" style="padding:10px 32px;font-size:15px">Save</button>
@@ -107,6 +165,13 @@
 </form>
 
 <script>
+function switchTab(name, btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+}
+
 async function loadConfig() {
     const res = await fetch('/admin/api/config');
     const cfg = await res.json();
@@ -129,6 +194,13 @@ async function loadConfig() {
     document.getElementById('debug-dir').value = cfg.debug.dir;
 
     document.getElementById('metrics-enabled').checked = cfg.metrics.enabled;
+
+    document.getElementById('proxy-enabled').checked = cfg.proxy.enabled;
+    document.getElementById('proxy-protocol').value = cfg.proxy.protocol;
+    document.getElementById('proxy-host').value = cfg.proxy.host;
+    document.getElementById('proxy-port').value = cfg.proxy.port || '';
+    document.getElementById('proxy-username').value = cfg.proxy.username;
+    document.getElementById('proxy-password').value = cfg.proxy.password;
 }
 
 async function saveConfig(e) {
@@ -159,6 +231,14 @@ async function saveConfig(e) {
         metrics: {
             enabled: document.getElementById('metrics-enabled').checked,
         },
+        proxy: {
+            enabled: document.getElementById('proxy-enabled').checked,
+            protocol: document.getElementById('proxy-protocol').value,
+            host: document.getElementById('proxy-host').value,
+            port: parseInt(document.getElementById('proxy-port').value) || 0,
+            username: document.getElementById('proxy-username').value,
+            password: document.getElementById('proxy-password').value,
+        },
     };
 
     const res = await fetch('/admin/api/config', {
@@ -186,7 +266,6 @@ document.getElementById('sync-backend-btn').addEventListener('click', async func
     document.getElementById('anthropic-backend-timeout').value =
         document.getElementById('openai-backend-timeout').value;
 
-    // Also sync server-side immediately
     const res = await fetch('/admin/api/config/sync-openai-to-anthropic', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},

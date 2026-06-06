@@ -1,7 +1,7 @@
 # LLM Gateway Proxy
 
 ## Overview
-An LLM API gateway proxy with priority queuing, concurrency control, API key authentication, structured logging, Prometheus metrics, and an embedded admin dashboard.
+An LLM API gateway proxy with priority queuing, concurrency control, API key authentication, structured logging, Prometheus metrics, proxy server support, and an embedded admin dashboard with custom login page and Chart.js charts.
 
 ## Interaction Rules
 
@@ -12,10 +12,12 @@ An LLM API gateway proxy with priority queuing, concurrency control, API key aut
 
 ## Architecture
 - **FastAPI** single-process application on port 8001
+- **SessionMiddleware** for admin session/cookie authentication (24h expiry)
 - **Priority queue** with configurable concurrency (`asyncio.Condition`-based)
 - **Separate backend configs** for OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`)
+- **Global proxy** support (HTTP/HTTPS/SOCKS5) for backend requests via `httpx` + `httpx-socks`
 - **SQLite** for API key storage and request logging
-- **Jinja2** admin dashboard (`, /admin/api-keys`, `/admin/logs`)
+- **Jinja2** admin dashboard with Chart.js charts (locally bundled)
 - **Prometheus** metrics at `/metrics`
 - **structlog** for structured JSON logging
 
@@ -23,18 +25,21 @@ An LLM API gateway proxy with priority queuing, concurrency control, API key aut
 
 | Path | Purpose |
 |------|---------|
-| `app/main.py` | App factory, startup/shutdown, route mounting |
-| `app/config.py` | YAML config loading via Pydantic |
+| `app/main.py` | App factory, startup/shutdown, SessionMiddleware, route mounting |
+| `app/config.py` | YAML config loading via Pydantic (includes ProxyConfig) |
 | `app/database.py` | SQLite init + connection management |
 | `app/core/queue.py` | Priority queue with asyncio.Condition |
-| `app/core/auth.py` | API Key Bearer auth + Admin Basic auth |
+| `app/core/auth.py` | API Key Bearer auth + Session-based admin auth |
 | `app/core/metrics.py` | Prometheus metric definitions |
+| `app/adapters/base.py` | Base adapter with proxy_url support |
 | `app/adapters/openai.py` | OpenAI-format adapter |
 | `app/adapters/anthropic.py` | Anthropic-format adapter |
 | `app/strategies/*.py` | Priority strategy (api_key) |
 | `app/api/proxy.py` | `/v1/chat/completions`, `/v1/messages` |
-| `app/api/admin_api.py` | Admin REST API |
-| `app/api/admin_pages.py` | Admin page routes |
+| `app/api/admin_api.py` | Admin REST API (includes timeseries stats) |
+| `app/api/admin_pages.py` | Admin page routes (login/logout/dashboard) |
+| `app/static/chart.umd.min.js` | Chart.js v4 (locally bundled) |
+| `app/static/style.css` | Light sci-fi theme CSS |
 | `config.yaml` | Default configuration |
 
 ## Debug Mode
@@ -70,9 +75,14 @@ uv run pytest tests/
 
 ## Configuration
 
-`config.yaml` contains bootstrap-only settings (server, auth, admin, database, logging).
-Runtime settings (queue, backends, debug, metrics) are managed through the admin page
+`config.yaml` contains bootstrap-only settings (server, auth, admin, database, logging, proxy).
+Runtime settings (queue, backends, debug, metrics, proxy) are managed through the admin page
 at `/admin/management`. Default values are in `app/config.py`.
+
+### Proxy Configuration
+Global proxy for all backend LLM requests. Supports HTTP, HTTPS, and SOCKS5 protocols.
+Optional username/password authentication. Configurable via `config.yaml` or the Management
+page (System tab). When changed via the admin API, both adapters are recreated immediately.
 
 ## API Endpoints
 
@@ -89,18 +99,22 @@ at `/admin/management`. Default values are in `app/config.py`.
 ### Admin (port 8001)
 | Path | Description |
 |------|-------------|
-| `GET /admin` | Dashboard |
+| `GET /admin/login` | Login page |
+| `POST /admin/login` | Login form submit (session cookie) |
+| `GET /admin/logout` | Logout (clear session) |
+| `GET /admin` | Dashboard (with Chart.js charts) |
 | `GET /admin/api-keys` | API key management page |
 | `GET /admin/logs` | Request logs page |
-| **`GET /admin/management`** | **Runtime configuration management page** |
+| **`GET /admin/management`** | **Runtime config (Scheduling / Backend / System tabs)** |
 | `GET /admin/api/queue` | Queue status (JSON) |
 | `GET /admin/api/keys` | List API keys |
 | `POST /admin/api/keys` | Create API key |
 | `PUT /admin/api/keys/{id}` | Update API key |
 | `DELETE /admin/api/keys/{id}` | Delete API key |
 | `GET /admin/api/stats` | Dashboard stats (supports `?period=24h&key_id=1`) |
+| `GET /admin/api/stats/timeseries` | Time-series data for charts (`?period=24h`) |
 | `GET /admin/api/logs` | Query logs (paginated, includes token columns) |
-| `GET /admin/api/config` | Get runtime config (queue, openai_backend, anthropic_backend, debug, metrics) |
+| `GET /admin/api/config` | Get runtime config (queue, backends, debug, metrics, proxy) |
 | `PUT /admin/api/config` | Update runtime config (applies immediately) |
 | `POST /admin/api/config/sync-openai-to-anthropic` | Copy OpenAI backend config to Anthropic |
 

@@ -72,3 +72,56 @@ def test_config_no_local(tmp_path):
     assert len(cfg._loaded_files) == 1
 
 
+def test_proxy_config_to_url():
+    """ProxyConfig.to_url() builds correct proxy URL strings."""
+    from app.config import ProxyConfig
+
+    # Disabled → empty
+    p = ProxyConfig(enabled=False, protocol="http", host="proxy.example.com", port=8080)
+    assert p.to_url() == ""
+
+    # Enabled but no host → empty
+    p = ProxyConfig(enabled=True, protocol="http", host="", port=8080)
+    assert p.to_url() == ""
+
+    # HTTP proxy without auth
+    p = ProxyConfig(enabled=True, protocol="http", host="127.0.0.1", port=8080)
+    assert p.to_url() == "http://127.0.0.1:8080"
+
+    # HTTPS proxy without auth
+    p = ProxyConfig(enabled=True, protocol="https", host="proxy.example.com", port=443)
+    assert p.to_url() == "https://proxy.example.com:443"
+
+    # SOCKS5 proxy with auth
+    p = ProxyConfig(enabled=True, protocol="socks5", host="10.0.0.1", port=1080,
+                    username="user", password="pass")
+    assert p.to_url() == "socks5://user:pass@10.0.0.1:1080"
+
+    # HTTP proxy with auth
+    p = ProxyConfig(enabled=True, protocol="http", host="proxy.local", port=3128,
+                    username="admin", password="secret")
+    assert p.to_url() == "http://admin:secret@proxy.local:3128"
+
+
+def test_proxy_config_defaults():
+    """ProxyConfig defaults are sensible (disabled, no proxy)."""
+    from app.config import ProxyConfig
+    p = ProxyConfig()
+    assert p.enabled is False
+    assert p.protocol == "http"
+    assert p.host == ""
+    assert p.port == 0
+    assert p.username == ""
+    assert p.password == ""
+    assert p.to_url() == ""
+
+
+def test_app_config_has_proxy():
+    """AppConfig includes proxy section by default."""
+    from app.config import AppConfig
+    cfg = AppConfig()
+    assert cfg.proxy is not None
+    assert cfg.proxy.enabled is False
+
+
+

@@ -134,3 +134,193 @@ def test_queue_public_endpoint(client):
     assert "current_waiting" in data
     assert "current_processing" in data
     assert "queue_full" in data
+
+
+# ── Login / Session tests ─────────────────────────────────────────
+
+@pytest.fixture
+def auth_client():
+    """Create a test client with admin session auth enabled."""
+    from app.main import create_app
+    app = create_app()
+
+    import app.config as cfg_module
+    cfg = AppConfig()
+    cfg.database.path = ":memory:"
+    cfg.auth.enabled = False
+    cfg.admin.enabled = True
+    cfg.admin.username = "admin"
+    cfg.admin.password = "testpass"
+    cfg.admin.secret_key = "test-secret-key"
+    cfg.metrics.enabled = False
+    cfg_module._config = cfg
+
+    with TestClient(app) as c:
+        yield c
+
+
+def test_admin_login_page_renders(auth_client):
+    """GET /admin/login renders login page when not logged in."""
+    response = auth_client.get("/admin/login")
+    assert response.status_code == 200
+    assert "login-card" in response.text or "login-form" in response.text
+
+
+def test_admin_login_wrong_credentials(auth_client):
+    """POST /admin/login with wrong credentials shows error."""
+    response = auth_client.post("/admin/login", data={
+        "username": "wrong", "password": "wrong"
+    })
+    assert response.status_code == 200  # re-renders login page
+    assert "error" in response.text.lower() or "错误" in response.text
+
+
+def test_admin_login_success(auth_client):
+    """POST /admin/login with correct credentials redirects to dashboard."""
+    response = auth_client.post("/admin/login", data={
+        "username": "admin", "password": "testpass"
+    }, follow_redirects=False)
+    assert response.status_code == 302
+    assert "/admin" in response.headers.get("location", "")
+
+
+def test_admin_session_required(auth_client):
+    """Admin pages redirect to login when not authenticated."""
+    response = auth_client.get("/admin", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/admin/login" in response.headers.get("location", "")
+
+
+def test_admin_api_session_required(auth_client):
+    """Admin API returns 401 when not authenticated."""
+    response = auth_client.get("/admin/api/keys")
+    assert response.status_code == 401
+
+
+def test_admin_full_login_flow(auth_client):
+    """Full flow: login → access dashboard → access API → logout → blocked."""
+    # Login
+    response = auth_client.post("/admin/login", data={
+        "username": "admin", "password": "testpass"
+    }, follow_redirects=True)
+    assert response.status_code == 200
+
+    # Access dashboard (should work now)
+    response = auth_client.get("/admin")
+    assert response.status_code == 200
+
+    # Access API (should work now)
+    response = auth_client.get("/admin/api/keys")
+    assert response.status_code == 200
+
+    # Logout
+    response = auth_client.get("/admin/logout", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/admin/login" in response.headers.get("location", "")
+
+    # Should be blocked again
+    response = auth_client.get("/admin/api/keys")
+    assert response.status_code == 401
+
+
+# ── Timeseries stats tests ────────────────────────────────────────
+
+def test_admin_stats_timeseries(client):
+    """GET /admin/api/stats/timeseries returns bucketed data."""
+    response = client.get("/admin/api/stats/timeseries?period=24h")
+    assert response.status_code == 200
+    data = response.json()
+    assert "period" in data
+    assert data["period"] == "24h"
+    assert "interval" in data
+    assert "buckets" in data
+    assert isinstance(data["buckets"], list)
+
+
+def test_admin_stats_timeseries_periods(client):
+    """Timeseries endpoint accepts all valid period values."""
+    for period in ["1h", "6h", "24h", "7d", "30d", "all"]:
+        response = client.get(f"/admin/api/stats/timeseries?period={period}")
+        assert response.status_code == 200
+        assert response.json()["period"] == period
+
+
+# ── Proxy config tests ────────────────────────────────────────────
+
+def test_admin_config_has_proxy(client):
+    """GET /admin/api/config includes proxy section."""
+    response = client.get("/admin/api/config")
+    assert response.status_code == 200
+    data = response.json()
+    assert "proxy" in data
+    proxy = data["proxy"]
+    assert "enabled" in proxy
+    assert "protocol" in proxy
+    assert "host" in proxy
+    assert "port" in proxy
+    assert "username" in proxy
+    assert "password" in proxy
+
+
+def test_admin_config_update_proxy(client):
+    """PUT /admin/api/config can update proxy settings."""
+    # Enable HTTP proxy
+    response = client.put("/admin/api/config", json={
+        "proxy": {
+            "enabled": True,
+            "protocol": "http",
+            "host": "127.0.0.1",
+            "port": 8888,
+            "username": "",
+            "password": "",
+        }
+    })
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    # Verify
+    response = client.get("/admin/api/config")
+    proxy = response.json()["proxy"]
+    assert proxy["enabled"] is True
+    assert proxy["protocol"] == "http"
+    assert proxy["host"] == "127.0.0.1"
+    assert proxy["port"] == 8888
+
+
+def test_admin_config_proxy_partial_update(client):
+    """PUT /admin/api/config supports partial proxy updates."""
+    # First set full proxy
+    client.put("/admin/api/config", json={
+        "proxy": {
+            "enabled": True, "protocol": "http",
+            "host": "proxy.local", "port": 3128,
+            "username": "", "password": "",
+        }
+    })
+
+    # Partial update: only change protocol and username
+    response = client.put("/admin/api/config", json={
+        "proxy": {"protocol": "socks5", "username": "user1"}
+    })
+    assert response.status_code == 200
+
+    # Verify: host/port preserved, protocol/username changed
+    proxy = client.get("/admin/api/config").json()["proxy"]
+    assert proxy["protocol"] == "socks5"
+    assert proxy["username"] == "user1"
+    assert proxy["host"] == "proxy.local"
+    assert proxy["port"] == 3128
+
+
+def test_admin_config_proxy_disable(client):
+    """Disabling proxy takes effect immediately."""
+    # Enable then disable
+    client.put("/admin/api/config", json={
+        "proxy": {"enabled": True, "host": "proxy.local", "port": 8080}
+    })
+    client.put("/admin/api/config", json={
+        "proxy": {"enabled": False}
+    })
+    proxy = client.get("/admin/api/config").json()["proxy"]
+    assert proxy["enabled"] is False
+

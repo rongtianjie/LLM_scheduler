@@ -399,6 +399,15 @@ body {
     margin-bottom: 16px;
 }
 
+.form-row {
+    display: flex;
+    gap: 16px;
+}
+
+.form-row .form-group {
+    min-width: 0;
+}
+
 .form-group label {
     display: block;
     margin-bottom: 6px;
@@ -510,6 +519,63 @@ body {
     background: var(--gradient);
     color: #fff;
     box-shadow: 0 1px 4px rgba(102, 126, 234, 0.3);
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────── */
+.tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 24px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px;
+    box-shadow: var(--shadow-sm);
+}
+
+.tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 20px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--font);
+}
+
+.tab-btn:hover {
+    background: var(--gradient-soft);
+    color: var(--text);
+}
+
+.tab-btn.active {
+    background: var(--gradient);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25);
+}
+
+.tab-icon {
+    font-size: 14px;
+}
+
+.tab-panel {
+    display: none;
+}
+
+.tab-panel.active {
+    display: block;
+    animation: tabFadeIn 0.2s ease;
+}
+
+@keyframes tabFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -661,6 +727,21 @@ body {
     padding-bottom: 10px;
     border-bottom: 1px solid var(--border);
     color: var(--text);
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.section-header h3 {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
 }
 
 .help-text {

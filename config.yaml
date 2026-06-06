@@ -17,3 +17,11 @@ database:
 logging:
   level: "INFO"
   format: "json"  # "json" | "text"
+
+proxy:
+  enabled: false
+  protocol: "http"
+  host: ""
+  port: 0
+  username: ""
+  password: ""
