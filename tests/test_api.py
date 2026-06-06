@@ -324,3 +324,85 @@ def test_admin_config_proxy_disable(client):
     proxy = client.get("/admin/api/config").json()["proxy"]
     assert proxy["enabled"] is False
 
+
+# ── New feature tests ────────────────────────────────────────────
+
+def test_admin_config_includes_queue_timeout(client):
+    """GET /admin/api/config includes queue.timeout."""
+    response = client.get("/admin/api/config")
+    assert response.status_code == 200
+    data = response.json()
+    assert "timeout" in data["queue"]
+
+
+def test_admin_config_includes_log_retention(client):
+    """GET /admin/api/config includes log_retention section."""
+    response = client.get("/admin/api/config")
+    assert response.status_code == 200
+    data = response.json()
+    assert "log_retention" in data
+    assert "retention_days" in data["log_retention"]
+    assert "max_records" in data["log_retention"]
+
+
+def test_admin_config_includes_cors(client):
+    """GET /admin/api/config includes cors section."""
+    response = client.get("/admin/api/config")
+    assert response.status_code == 200
+    data = response.json()
+    assert "cors" in data
+    assert "origins" in data["cors"]
+
+
+def test_admin_config_update_queue_timeout(client):
+    """PUT /admin/api/config supports updating queue.timeout."""
+    response = client.put("/admin/api/config", json={
+        "queue": {"timeout": 600}
+    })
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    # Verify
+    data = client.get("/admin/api/config").json()
+    assert data["queue"]["timeout"] == 600
+
+
+def test_admin_config_reject_invalid_proxy_protocol(client):
+    """PUT /admin/api/config rejects invalid proxy protocol."""
+    response = client.put("/admin/api/config", json={
+        "proxy": {"protocol": "ftp"}
+    })
+    assert response.status_code == 422
+    data = response.json()
+    assert "protocol" in data["detail"]
+
+
+def test_admin_keys_with_rate_limit(client):
+    """API Key CRUD supports rate_limit and token_quota fields."""
+    # Create with rate_limit and quota
+    response = client.post("/admin/api/keys", json={
+        "name": "ratelimited",
+        "priority": 50,
+        "rate_limit": 30,
+        "token_quota_daily": 10000,
+        "token_quota_monthly": 200000,
+    })
+    assert response.status_code == 201
+    data = response.json()
+    assert data["rate_limit"] == 30
+    assert data["token_quota_daily"] == 10000
+    assert data["token_quota_monthly"] == 200000
+    key_id = data["id"]
+
+    # Update
+    response = client.put(f"/admin/api/keys/{key_id}", json={"rate_limit": 60})
+    assert response.status_code == 200
+    assert response.json()["rate_limit"] == 60
+
+    # Default values (0 = unlimited)
+    response = client.post("/admin/api/keys", json={"name": "defaults"})
+    assert response.status_code == 201
+    data = response.json()
+    assert data["rate_limit"] == 0
+    assert data["token_quota_daily"] == 0
+    assert data["token_quota_monthly"] == 0
+

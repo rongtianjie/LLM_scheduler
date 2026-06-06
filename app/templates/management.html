@@ -35,6 +35,11 @@
             <input type="number" id="queue-concurrency" min="1" max="100" required>
             <span class="help-text">Number of requests processed simultaneously</span>
         </div>
+        <div class="form-group">
+            <label>Wait Timeout (seconds, 0=unlimited)</label>
+            <input type="number" id="queue-timeout" min="0" max="3600" required>
+            <span class="help-text">Max time a request waits in queue before returning 408</span>
+        </div>
     </section>
 
     <section class="config-section">
@@ -178,6 +183,7 @@ async function loadConfig() {
 
     document.getElementById('queue-max-length').value = cfg.queue.max_length;
     document.getElementById('queue-concurrency').value = cfg.queue.concurrency;
+    document.getElementById('queue-timeout').value = cfg.queue.timeout || 0;
 
     document.getElementById('priority-strategy').value = cfg.priority.strategy;
     document.getElementById('priority-default').value = cfg.priority.default_priority;
@@ -209,6 +215,7 @@ async function saveConfig(e) {
         queue: {
             max_length: parseInt(document.getElementById('queue-max-length').value),
             concurrency: parseInt(document.getElementById('queue-concurrency').value),
+            timeout: parseInt(document.getElementById('queue-timeout').value) || 0,
         },
         priority: {
             strategy: document.getElementById('priority-strategy').value,

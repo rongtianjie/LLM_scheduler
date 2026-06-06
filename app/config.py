@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ServerConfig(BaseModel):
@@ -20,6 +20,7 @@ class AdminConfig(BaseModel):
     username: str = "admin"
     password: str = "admin123"
     secret_key: str = "llm-gateway-default-secret"
+    session_https_only: bool = False
 
 
 class DatabaseConfig(BaseModel):
@@ -29,6 +30,7 @@ class DatabaseConfig(BaseModel):
 class QueueConfig(BaseModel):
     max_length: int = 5
     concurrency: int = 1
+    timeout: int = 300  # max seconds to wait in queue, 0 = unlimited
 
 
 class PriorityConfig(BaseModel):
@@ -58,9 +60,9 @@ class MetricsConfig(BaseModel):
 
 class ProxyConfig(BaseModel):
     enabled: bool = False
-    protocol: str = "http"   # "http" | "https" | "socks5"
+    protocol: str = Field(default="http", pattern=r'^(http|https|socks5)$')
     host: str = ""
-    port: int = 0
+    port: int = Field(default=0, ge=0, le=65535)
     username: str = ""
     password: str = ""
 
@@ -70,6 +72,15 @@ class ProxyConfig(BaseModel):
             return ""
         auth = f"{self.username}:{self.password}@" if self.username else ""
         return f"{self.protocol}://{auth}{self.host}:{self.port}"
+
+
+class LogRetentionConfig(BaseModel):
+    retention_days: int = 90
+    max_records: int = 100_000
+
+
+class CorsConfig(BaseModel):
+    origins: list[str] = ["*"]
 
 
 class AppConfig(BaseModel):
@@ -85,6 +96,8 @@ class AppConfig(BaseModel):
     debug: DebugConfig = DebugConfig()
     metrics: MetricsConfig = MetricsConfig()
     proxy: ProxyConfig = ProxyConfig()
+    log_retention: LogRetentionConfig = LogRetentionConfig()
+    cors: CorsConfig = CorsConfig()
 
 
 _config: Optional[AppConfig] = None

@@ -12,12 +12,18 @@ from pydantic import BaseModel
 class ApiKeyCreate(BaseModel):
     name: str
     priority: int = 100
+    rate_limit: int = 0  # requests per minute, 0 = unlimited
+    token_quota_daily: int = 0  # 0 = unlimited
+    token_quota_monthly: int = 0  # 0 = unlimited
 
 
 class ApiKeyUpdate(BaseModel):
     name: Optional[str] = None
     priority: Optional[int] = None
     enabled: Optional[bool] = None
+    rate_limit: Optional[int] = None
+    token_quota_daily: Optional[int] = None
+    token_quota_monthly: Optional[int] = None
 
 
 class ApiKeyResponse(BaseModel):
@@ -27,6 +33,9 @@ class ApiKeyResponse(BaseModel):
     priority: int
     enabled: bool
     created_at: str
+    rate_limit: int = 0
+    token_quota_daily: int = 0
+    token_quota_monthly: int = 0
 
 
 class QueueStatus(BaseModel):

@@ -42,7 +42,11 @@ async def get_queue_status(request: Request, _=Depends(_admin_auth)):
 async def list_api_keys(request: Request, _=Depends(_admin_auth)):
     db = await get_db()
     cursor = await db.execute(
-        "SELECT id, key, name, priority, enabled, created_at FROM api_keys ORDER BY id"
+        "SELECT id, key, name, priority, enabled, created_at, "
+        "COALESCE(rate_limit, 0) as rate_limit, "
+        "COALESCE(token_quota_daily, 0) as token_quota_daily, "
+        "COALESCE(token_quota_monthly, 0) as token_quota_monthly "
+        "FROM api_keys ORDER BY id"
     )
     rows = await cursor.fetchall()
     return [
@@ -53,6 +57,9 @@ async def list_api_keys(request: Request, _=Depends(_admin_auth)):
             priority=r["priority"],
             enabled=bool(r["enabled"]),
             created_at=r["created_at"],
+            rate_limit=r["rate_limit"],
+            token_quota_daily=r["token_quota_daily"],
+            token_quota_monthly=r["token_quota_monthly"],
         )
         for r in rows
     ]
@@ -64,8 +71,10 @@ async def create_api_key(body: ApiKeyCreate, request: Request, _=Depends(_admin_
     key = generate_api_key()
     now = utcnow()
     await db.execute(
-        "INSERT INTO api_keys (key, name, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        (key, body.name, body.priority, now, now),
+        "INSERT INTO api_keys (key, name, priority, rate_limit, token_quota_daily, "
+        "token_quota_monthly, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (key, body.name, body.priority, body.rate_limit, body.token_quota_daily,
+         body.token_quota_monthly, now, now),
     )
     await db.commit()
     cursor = await db.execute("SELECT last_insert_rowid()")
@@ -77,6 +86,9 @@ async def create_api_key(body: ApiKeyCreate, request: Request, _=Depends(_admin_
         priority=body.priority,
         enabled=True,
         created_at=utcnow(),
+        rate_limit=body.rate_limit,
+        token_quota_daily=body.token_quota_daily,
+        token_quota_monthly=body.token_quota_monthly,
     )
 
 
@@ -92,11 +104,16 @@ async def update_api_key(key_id: int, body: ApiKeyUpdate, request: Request,
     new_name = body.name if body.name is not None else existing["name"]
     new_priority = body.priority if body.priority is not None else existing["priority"]
     new_enabled = body.enabled if body.enabled is not None else bool(existing["enabled"])
+    new_rate_limit = body.rate_limit if body.rate_limit is not None else (existing["rate_limit"] if existing["rate_limit"] is not None else 0)
+    new_quota_daily = body.token_quota_daily if body.token_quota_daily is not None else (existing["token_quota_daily"] if existing["token_quota_daily"] is not None else 0)
+    new_quota_monthly = body.token_quota_monthly if body.token_quota_monthly is not None else (existing["token_quota_monthly"] if existing["token_quota_monthly"] is not None else 0)
     now = utcnow()
 
     await db.execute(
-        "UPDATE api_keys SET name=?, priority=?, enabled=?, updated_at=? WHERE id=?",
-        (new_name, new_priority, int(new_enabled), now, key_id),
+        "UPDATE api_keys SET name=?, priority=?, enabled=?, rate_limit=?, "
+        "token_quota_daily=?, token_quota_monthly=?, updated_at=? WHERE id=?",
+        (new_name, new_priority, int(new_enabled), new_rate_limit,
+         new_quota_daily, new_quota_monthly, now, key_id),
     )
     await db.commit()
 
@@ -107,6 +124,9 @@ async def update_api_key(key_id: int, body: ApiKeyUpdate, request: Request,
         priority=new_priority,
         enabled=new_enabled,
         created_at=existing["created_at"],
+        rate_limit=new_rate_limit,
+        token_quota_daily=new_quota_daily,
+        token_quota_monthly=new_quota_monthly,
     )
 
 
@@ -350,6 +370,7 @@ async def get_logs(request: Request, _=Depends(_admin_auth),
 class MutableQueue(BaseModel):
     max_length: Optional[int] = None
     concurrency: Optional[int] = None
+    timeout: Optional[int] = None
 
 
 class MutablePriority(BaseModel):
@@ -421,7 +442,7 @@ async def get_config_admin(request: Request, _=Depends(_admin_auth)):
     """Return current runtime configuration sections."""
     cfg = get_config()
     return {
-        "queue": {"max_length": cfg.queue.max_length, "concurrency": cfg.queue.concurrency},
+        "queue": {"max_length": cfg.queue.max_length, "concurrency": cfg.queue.concurrency, "timeout": cfg.queue.timeout},
         "priority": {
             "strategy": cfg.priority.strategy,
             "default_priority": cfg.priority.default_priority,
@@ -446,6 +467,13 @@ async def get_config_admin(request: Request, _=Depends(_admin_auth)):
             "username": cfg.proxy.username,
             "password": cfg.proxy.password,
         },
+        "log_retention": {
+            "retention_days": cfg.log_retention.retention_days,
+            "max_records": cfg.log_retention.max_records,
+        },
+        "cors": {
+            "origins": cfg.cors.origins,
+        },
     }
 
 
@@ -466,6 +494,9 @@ async def update_config_admin(body: MutableConfig, request: Request,
         if body.queue.concurrency is not None:
             cfg.queue.concurrency = body.queue.concurrency
             changed.append("queue.concurrency")
+        if body.queue.timeout is not None:
+            cfg.queue.timeout = body.queue.timeout
+            changed.append("queue.timeout")
 
     # Priority
     if body.priority:
@@ -512,6 +543,8 @@ async def update_config_admin(body: MutableConfig, request: Request,
             cfg.proxy.enabled = body.proxy.enabled
             changed.append("proxy.enabled")
         if body.proxy.protocol is not None:
+            if body.proxy.protocol not in ("http", "https", "socks5"):
+                raise HTTPException(status_code=422, detail="proxy.protocol must be http, https, or socks5")
             cfg.proxy.protocol = body.proxy.protocol
             changed.append("proxy.protocol")
         if body.proxy.host is not None:

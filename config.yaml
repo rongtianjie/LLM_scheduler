@@ -10,13 +10,27 @@ admin:
   username: "admin"
   password: "admin123"
   secret_key: "llm-gateway-default-secret"
+  session_https_only: false  # set to true in production behind HTTPS
 
 database:
   path: "data/gateway.db"
 
+queue:
+  max_length: 5
+  concurrency: 1
+  timeout: 300  # max seconds to wait in queue, 0 = unlimited
+
 logging:
   level: "INFO"
   format: "json"  # "json" | "text"
+
+log_retention:
+  retention_days: 90
+  max_records: 100000
+
+cors:
+  origins:
+    - "*"
 
 proxy:
   enabled: false

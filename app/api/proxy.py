@@ -75,8 +75,11 @@ async def _do_save_debug(request_id: str, label: str, data: str, ctx: RequestCon
         model = ctx.model.replace("/", "_") if ctx.model else "unknown"
         fname = d / f"{ts}_{request_id[:12]}_{model}_{label}.json"
         fname.write_text(data, encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        import structlog
+        structlog.get_logger().error(
+            "debug.save_failed", request_id=request_id, label=label, error=str(e)
+        )
 
 
 async def _stream_wrapper(
@@ -177,8 +180,11 @@ async def _save_log(context: RequestContext, wait_ms: int, proc_ms: int):
             ),
         )
         await db.commit()
-    except Exception:
-        pass  # Don't let logging failures affect the request
+    except Exception as e:
+        import structlog
+        structlog.get_logger().error(
+            "log.save_failed", request_id=context.request_id, error=str(e)
+        )
 
 
 async def _process_request(request: Request, endpoint: str) -> Response:
@@ -197,6 +203,43 @@ async def _process_request(request: Request, endpoint: str) -> Response:
 
     # Compute priority
     priority = await _strategy.get_priority(request, user_name)
+
+    # Rate limit check
+    from app.database import get_db as get_db_limiter
+    db = await get_db_limiter()
+    cursor = await db.execute(
+        "SELECT COALESCE(rate_limit, 0) as rate_limit, "
+        "COALESCE(token_quota_daily, 0) as token_quota_daily, "
+        "COALESCE(token_quota_monthly, 0) as token_quota_monthly "
+        "FROM api_keys WHERE name = ? AND enabled = 1",
+        (user_name,),
+    )
+    key_row = await cursor.fetchone()
+
+    if key_row and key_row["rate_limit"] > 0:
+        from app.core.rate_limiter import get_rate_limiter
+        limiter = get_rate_limiter()
+        if not limiter.check(user_name, key_row["rate_limit"]):
+            import structlog
+            structlog.get_logger().warning(
+                "rate_limit.exceeded", user=user_name, rate_limit=key_row["rate_limit"]
+            )
+            return JSONResponse(
+                status_code=429,
+                content={"error": f"Rate limit exceeded ({key_row['rate_limit']} req/min)"},
+            )
+
+    # Token quota check
+    if key_row and (key_row["token_quota_daily"] > 0 or key_row["token_quota_monthly"] > 0):
+        from app.core.quota_checker import check_quota
+        quota_error = await check_quota(
+            user_name, key_row["token_quota_daily"], key_row["token_quota_monthly"]
+        )
+        if quota_error:
+            import structlog
+            structlog.get_logger().warning("quota.exceeded", user=user_name, detail=quota_error)
+            return JSONResponse(status_code=429, content={"error": quota_error})
+
 
     # Build context
     context = RequestContext(
@@ -231,7 +274,18 @@ async def _process_request(request: Request, endpoint: str) -> Response:
         requests_processing.set(1 if queue.is_processing else 0)
 
     # Wait for turn
-    await queue.wait_for_turn(context.request_id)
+    try:
+        queue_timeout = config.queue.timeout if config.queue.timeout > 0 else None
+        await queue.wait_for_turn(context.request_id, timeout=queue_timeout)
+    except asyncio.TimeoutError:
+        import structlog
+        structlog.get_logger().warning(
+            "queue.timeout", request_id=context.request_id, user=user_name
+        )
+        return JSONResponse(
+            status_code=408,
+            content={"error": f"Queue wait timeout ({config.queue.timeout}s)"},
+        )
     context.dequeue_time = datetime.now(timezone.utc)
 
     if metrics_enabled():
@@ -278,9 +332,11 @@ async def _models_list(request: Request) -> Response:
     import httpx
     import structlog
     logger = structlog.get_logger()
+    proxy_url = config.proxy.to_url() or None
     try:
         async with httpx.AsyncClient(timeout=config.openai_backend.timeout,
-                                     trust_env=False) as client:
+                                     trust_env=False,
+                                     proxy=proxy_url) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 logger.warning("backend.models_error", status=resp.status_code,

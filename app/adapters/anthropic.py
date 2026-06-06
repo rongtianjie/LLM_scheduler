@@ -4,6 +4,7 @@ from typing import AsyncGenerator, Union
 import httpx
 
 from app.adapters.base import BaseAdapter
+from app.config import BackendConfig
 from app.models import RequestContext
 
 
@@ -38,7 +39,7 @@ class AnthropicAdapter(BaseAdapter):
 
     PATH = "/messages"
 
-    def __init__(self, backend_config, proxy_url: str = ""):
+    def __init__(self, backend_config: BackendConfig, proxy_url: str = ""):
         super().__init__(backend_config, proxy_url)
 
     async def _headers(self) -> dict:

@@ -7,6 +7,10 @@
 - **双协议兼容**：同时支持 OpenAI 和 Anthropic API 格式，可独立配置后端地址
 - **优先级队列**：根据 API Key 分配优先级，高优先级请求插队
 - **并发控制**：可配置并发数（concurrency），队列满返回 429
+- **队列超时**：可配置等待超时时间，超时返回 408
+- **速率限制**：支持 API Key 级别请求速率限制（请求数/分钟），超限返回 429
+- **Token 配额**：支持 API Key 级别日/月 Token 用量配额，超限拒绝请求
+- **日志清理**：自动清理过期日志，支持按保留天数和最大记录数限制
 - **流式透传**：SSE 事件流原样转发，不解析不修改
 - **Token 统计**：自动记录每次请求的输入/输出 token 数（流式 + 非流式）
 - **Dashboard 图表**：Chart.js 时间序列图表，支持 1h/6h/24h/7d/30d 周期切换
@@ -14,6 +18,7 @@
 - **API Key 认证**：独立 API Key，可配置开关
 - **管理员登录**：自定义登录页面，基于 Session/Cookie 的认证机制
 - **代理服务器**：支持通过 HTTP/HTTPS/SOCKS5 代理服务器转发后端请求
+- **CORS 支持**：可配置跨域请求来源
 - **结构化日志**：JSON 格式，完整请求生命周期记录（含 token 用量）
 - **Prometheus 指标**：队列长度、请求延迟、处理时间等
 - **嵌入式管理面板**：科技感 UI，Web 界面管理 API Key、查看日志、统计和仪表盘
@@ -66,7 +71,7 @@ docker run -d \
 
 ## 配置说明
 
-`config.yaml` 仅包含启动级配置（server、auth、admin、database、logging、proxy），运行时配置（队列、后端、Debug、Metrics、Proxy）通过管理页面控制。默认值见 `app/config.py`。
+`config.yaml` 仅包含启动级配置（server、auth、admin、database、queue、logging、log_retention、cors、proxy），运行时配置（队列、后端、Debug、Metrics、Proxy）也可通过管理页面控制。默认值见 `app/config.py`。
 
 ```yaml
 server:
@@ -81,13 +86,27 @@ admin:
   username: "admin"
   password: "admin123"
   secret_key: "llm-gateway-default-secret"  # Session 加密密钥
+  session_https_only: false      # 生产环境建议设为 true
 
 database:
   path: "data/gateway.db"
 
+queue:
+  max_length: 5
+  concurrency: 1
+  timeout: 300                   # 队列等待超时（秒），0=无限
+
 logging:
   level: "INFO"
   format: "json"                 # "json" | "text"
+
+log_retention:
+  retention_days: 90             # 日志保留天数
+  max_records: 100000            # 最大日志记录数
+
+cors:
+  origins:
+    - "*"                        # 允许跨域来源列表
 
 proxy:
   enabled: false                 # 代理服务器开关
@@ -138,10 +157,10 @@ curl -c cookies.txt -X POST http://localhost:8001/admin/login \
 # 获取队列状态
 curl -b cookies.txt http://localhost:8001/admin/api/queue
 
-# 创建 API Key
+# 创建 API Key（支持速率限制和 Token 配额）
 curl -b cookies.txt -X POST http://localhost:8001/admin/api/keys \
   -H "Content-Type: application/json" \
-  -d '{"name": "alice", "priority": 50}'
+  -d '{"name": "alice", "priority": 50, "rate_limit": 30, "token_quota_daily": 100000}'
 
 # 查询日志
 curl -b cookies.txt "http://localhost:8001/admin/api/logs?page=1&per_page=20"
@@ -178,6 +197,13 @@ curl -b cookies.txt -X PUT http://localhost:8001/admin/api/config \
 3. 高优先级请求插入队列头部，不中断当前正在处理的请求
 4. 队列满时返回 HTTP 429
 5. 流式请求持续期间，后续请求排队等待
+6. 队列等待超时时返回 HTTP 408（可通过 `queue.timeout` 配置，0=无限等待）
+
+## 速率限制与配额
+
+- **速率限制**：通过 API Key 的 `rate_limit` 字段设置（请求数/分钟），超限返回 429
+- **Token 配额**：通过 `token_quota_daily` / `token_quota_monthly` 设置日/月 Token 上限
+- 配额检查基于 SQLite 中已记录的 token 用量（prompt_tokens + completion_tokens）
 
 ## 测试
 
@@ -191,18 +217,20 @@ uv run pytest tests/
 
 ```
 app/
-├── main.py              # 入口，应用工厂，SessionMiddleware
-├── config.py            # 配置加载（含 ProxyConfig）
-├── database.py          # SQLite 管理
+├── main.py              # 入口，应用工厂，CORS/SessionMiddleware
+├── config.py            # 配置加载（含 Proxy/LogRetention/CorsConfig）
+├── database.py          # SQLite 管理（WAL模式、索引、日志清理）
 ├── models.py            # 数据模型
 ├── api/
-│   ├── proxy.py         # 代理端点
+│   ├── proxy.py         # 代理端点（含速率限制、配额检查、超时）
 │   ├── admin_api.py     # 管理 API（含 timeseries）
 │   └── admin_pages.py   # 管理页面（含登录/登出）
 ├── core/
-│   ├── queue.py         # 优先级队列
+│   ├── queue.py         # 优先级队列（含超时支持）
 │   ├── auth.py          # 认证（Session + API Key）
-│   └── metrics.py       # 指标
+│   ├── metrics.py       # 指标
+│   ├── rate_limiter.py  # 内存滑动窗口速率限制器
+│   └── quota_checker.py # Token 用量配额检查
 ├── adapters/
 │   ├── base.py          # 适配器基类（含代理支持）
 │   ├── openai.py        # OpenAI 适配器

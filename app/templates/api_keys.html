@@ -18,6 +18,20 @@
                 <label>Priority (lower = higher priority)</label>
                 <input type="number" name="priority" value="100" min="1">
             </div>
+            <div class="form-group">
+                <label>Rate Limit (req/min, 0=unlimited)</label>
+                <input type="number" name="rate_limit" value="0" min="0">
+            </div>
+            <div class="form-row">
+                <div class="form-group" style="flex:1">
+                    <label>Token Quota Daily (0=unlimited)</label>
+                    <input type="number" name="token_quota_daily" value="0" min="0">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label>Token Quota Monthly (0=unlimited)</label>
+                    <input type="number" name="token_quota_monthly" value="0" min="0">
+                </div>
+            </div>
             <div class="form-actions">
                 <button type="button" class="btn" onclick="hideCreateForm()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Create</button>
@@ -85,7 +99,10 @@ async function loadKeys() {
 async function createKey(e) {
     e.preventDefault();
     const form = e.target;
-    const data = { name: form.name.value, priority: parseInt(form.priority.value) || 100 };
+    const data = { name: form.name.value, priority: parseInt(form.priority.value) || 100,
+        rate_limit: parseInt(form.rate_limit.value) || 0,
+        token_quota_daily: parseInt(form.token_quota_daily.value) || 0,
+        token_quota_monthly: parseInt(form.token_quota_monthly.value) || 0 };
     const res = await fetch('/admin/api/keys', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},

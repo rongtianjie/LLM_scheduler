@@ -1,7 +1,7 @@
 # LLM Gateway Proxy
 
 ## Overview
-An LLM API gateway proxy with priority queuing, concurrency control, API key authentication, structured logging, Prometheus metrics, proxy server support, and an embedded admin dashboard with custom login page and Chart.js charts.
+An LLM API gateway proxy with priority queuing, concurrency control, queue timeout, rate limiting, token quota, log retention, API key authentication, structured logging, Prometheus metrics, CORS support, proxy server support, and an embedded admin dashboard with custom login page and Chart.js charts.
 
 ## Interaction Rules
 
@@ -12,11 +12,15 @@ An LLM API gateway proxy with priority queuing, concurrency control, API key aut
 
 ## Architecture
 - **FastAPI** single-process application on port 8001
-- **SessionMiddleware** for admin session/cookie authentication (24h expiry)
-- **Priority queue** with configurable concurrency (`asyncio.Condition`-based)
+- **CORS middleware** for cross-origin support (configurable origins)
+- **SessionMiddleware** for admin session/cookie authentication (24h expiry, https_only configurable)
+- **Priority queue** with configurable concurrency and timeout (`asyncio.Condition`-based)
+- **In-memory rate limiter** (sliding window, per API key requests/minute)
+- **Token quota checker** (daily/monthly token limits per API key, SQL-based)
+- **Log retention** (automatic cleanup on startup, by retention_days and max_records)
 - **Separate backend configs** for OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`)
 - **Global proxy** support (HTTP/HTTPS/SOCKS5) for backend requests via `httpx` + `httpx-socks`
-- **SQLite** for API key storage and request logging
+- **SQLite** (WAL mode, indexed) for API key storage and request logging
 - **Jinja2** admin dashboard with Chart.js charts (locally bundled)
 - **Prometheus** metrics at `/metrics`
 - **structlog** for structured JSON logging
@@ -25,18 +29,20 @@ An LLM API gateway proxy with priority queuing, concurrency control, API key aut
 
 | Path | Purpose |
 |------|---------|
-| `app/main.py` | App factory, startup/shutdown, SessionMiddleware, route mounting |
-| `app/config.py` | YAML config loading via Pydantic (includes ProxyConfig) |
-| `app/database.py` | SQLite init + connection management |
-| `app/core/queue.py` | Priority queue with asyncio.Condition |
+| `app/main.py` | App factory, startup/shutdown, CORS/SessionMiddleware, route mounting |
+| `app/config.py` | YAML config loading via Pydantic (includes Proxy/LogRetention/CorsConfig, Field validators) |
+| `app/database.py` | SQLite init (WAL mode, indexes, migrations, log cleanup) |
+| `app/core/queue.py` | Priority queue with asyncio.Condition + timeout support |
 | `app/core/auth.py` | API Key Bearer auth + Session-based admin auth |
 | `app/core/metrics.py` | Prometheus metric definitions |
+| `app/core/rate_limiter.py` | In-memory sliding window rate limiter |
+| `app/core/quota_checker.py` | Token usage quota checker (daily/monthly) |
 | `app/adapters/base.py` | Base adapter with proxy_url support |
 | `app/adapters/openai.py` | OpenAI-format adapter |
 | `app/adapters/anthropic.py` | Anthropic-format adapter |
 | `app/strategies/*.py` | Priority strategy (api_key) |
-| `app/api/proxy.py` | `/v1/chat/completions`, `/v1/messages` |
-| `app/api/admin_api.py` | Admin REST API (includes timeseries stats) |
+| `app/api/proxy.py` | Proxy endpoints (rate limit, quota check, timeout) |
+| `app/api/admin_api.py` | Admin REST API (includes timeseries stats, config management) |
 | `app/api/admin_pages.py` | Admin page routes (login/logout/dashboard) |
 | `app/static/chart.umd.min.js` | Chart.js v4 (locally bundled) |
 | `app/static/style.css` | Light sci-fi theme CSS |
@@ -75,9 +81,15 @@ uv run pytest tests/
 
 ## Configuration
 
-`config.yaml` contains bootstrap-only settings (server, auth, admin, database, logging, proxy).
-Runtime settings (queue, backends, debug, metrics, proxy) are managed through the admin page
-at `/admin/management`. Default values are in `app/config.py`.
+`config.yaml` contains bootstrap-only settings (server, auth, admin, database, queue, logging,
+log_retention, cors, proxy). Runtime settings (queue, backends, debug, metrics, proxy) are
+managed through the admin page at `/admin/management`. Default values are in `app/config.py`.
+
+### New Config Sections
+- **queue.timeout**: Max seconds a request waits before 408 (0 = unlimited, default 300)
+- **log_retention**: Auto-cleanup on startup (`retention_days`, `max_records`)
+- **cors.origins**: Allowed CORS origins (default `["*"]`)
+- **admin.session_https_only**: Set `Secure` flag on session cookies (default false)
 
 ### Proxy Configuration
 Global proxy for all backend LLM requests. Supports HTTP, HTTPS, and SOCKS5 protocols.
@@ -120,11 +132,30 @@ page (System tab). When changed via the admin API, both adapters are recreated i
 
 ## Request Flow
 
-1. Client sends request → auth check → priority computation
+1. Client sends request → auth check → rate limit check → quota check → priority computation
 2. Request enqueued (429 if queue full)
-3. Waits via `asyncio.Condition` until at front + no active processing
-4. Adapter forwards to backend (streaming or non-streaming)
+3. Waits via `asyncio.Condition` until at front + no active processing (408 on timeout)
+4. Adapter forwards to backend (streaming or non-streaming, with proxy support)
 5. On completion: signal next waiting request, log, record metrics
+
+## Rate Limiting
+
+- In-memory sliding window (60s), per API key
+- Configured via `rate_limit` field on API keys (requests/minute, 0 = unlimited)
+- Exceeded requests receive HTTP 429 with descriptive error message
+
+## Token Quota
+
+- Daily and monthly token limits per API key
+- Checked via SQL SUM query on `request_logs.prompt_tokens + completion_tokens`
+- Configured via `token_quota_daily` / `token_quota_monthly` fields (0 = unlimited)
+- Exceeded requests receive HTTP 429 with quota exceeded message
+
+## Log Retention
+
+- Automatic cleanup on application startup
+- `retention_days`: Delete logs older than N days
+- `max_records`: Trim oldest records if total exceeds this number
 
 ## Priority
 

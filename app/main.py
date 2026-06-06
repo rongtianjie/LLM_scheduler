@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.admin_api import router as admin_api_router
@@ -71,6 +72,17 @@ def create_app() -> FastAPI:
             logger.info("AUTH is ENABLED — clients must provide Authorization: Bearer <api-key>")
         else:
             logger.info("AUTH is DISABLED — all requests pass through without authentication")
+
+        # Admin password security check
+        if cfg.admin.enabled and len(cfg.admin.password) < 6:
+            logger.warning("ADMIN_PASSWORD_WEAK — password is too short (< 6 chars)")
+
+        # Log cleanup on startup
+        from app.database import cleanup_old_logs
+        await cleanup_old_logs(
+            retention_days=cfg.log_retention.retention_days,
+            max_records=cfg.log_retention.max_records,
+        )
         yield
         # Shutdown
         await close_db()
@@ -91,7 +103,15 @@ def create_app() -> FastAPI:
         secret_key=config.admin.secret_key,
         max_age=86400,  # 24 hours
         same_site="lax",
-        https_only=False,
+        https_only=config.admin.session_https_only,
+    )
+
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors.origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # ── Routes ────────────────────────────────────────────────────

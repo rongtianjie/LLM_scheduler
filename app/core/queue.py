@@ -47,19 +47,32 @@ class PriorityQueue:
             self._condition.notify_all()
             return True
 
-    async def wait_for_turn(self, request_id: str) -> None:
-        """Block until this request_id is at the front and no other is processing."""
+    async def wait_for_turn(self, request_id: str, timeout: float | None = None) -> None:
+        """Block until this request_id is at the front and no other is processing.
+
+        Args:
+            timeout: Maximum wait time in seconds. None = wait indefinitely.
+            
+        Raises:
+            asyncio.TimeoutError: if timeout is reached before getting the turn.
+        """
         async with self._lock:
             while True:
                 if self._current_processing is not None or not self._heap:
-                    await self._condition.wait()
+                    try:
+                        await asyncio.wait_for(self._condition.wait(), timeout=timeout)
+                    except asyncio.TimeoutError:
+                        raise
                     continue
                 front = self._heap[0]
                 if front[-1].request_id == request_id:
                     self._current_processing = request_id
                     heapq.heappop(self._heap)
                     return
-                await self._condition.wait()
+                try:
+                    await asyncio.wait_for(self._condition.wait(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    raise
 
     async def signal_done(self, request_id: str) -> None:
         """Mark a request as done, allowing the next one to proceed."""
