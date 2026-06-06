@@ -1,66 +1,68 @@
+> [**中文版本**](./README.zh.md) | [**English Version**](./README.md)
+
 # LLM Gateway Proxy
 
-生产级 LLM API 网关代理，支持优先级队列、并发控制、API Key 认证和嵌入式管理面板。
+A production-grade LLM API gateway proxy with priority queueing, concurrency control, API Key authentication, and an embedded admin dashboard.
 
-## 功能特性
+## Features
 
-- **双协议兼容**：同时支持 OpenAI 和 Anthropic API 格式，可独立配置后端地址
-- **优先级队列**：根据 API Key 分配优先级，高优先级请求插队
-- **并发控制**：可配置并发数（concurrency），队列满返回 429
-- **队列超时**：可配置等待超时时间，超时返回 408
-- **速率限制**：支持 API Key 级别请求速率限制（请求数/分钟），超限返回 429
-- **Token 配额**：支持 API Key 级别日/月 Token 用量配额，超限拒绝请求
-- **日志清理**：自动清理过期日志，支持按保留天数和最大记录数限制
-- **流式透传**：SSE 事件流原样转发，不解析不修改
-- **Token 统计**：自动记录每次请求的输入/输出 token 数（流式 + 非流式）
-- **Dashboard 图表**：Chart.js 时间序列图表，支持 1h/6h/24h/7d/30d 周期切换
-- **Debug 模式**：开启后将完整请求/响应体保存到磁盘，便于排查问题
-- **API Key 认证**：独立 API Key，可配置开关
-- **管理员登录**：自定义登录页面，基于 Session/Cookie 的认证机制
-- **代理服务器**：支持通过 HTTP/HTTPS/SOCKS5 代理服务器转发后端请求
-- **CORS 支持**：可配置跨域请求来源
-- **结构化日志**：JSON 格式，完整请求生命周期记录（含 token 用量）
-- **Prometheus 指标**：队列长度、请求延迟、处理时间等
-- **嵌入式管理面板**：科技感 UI，Web 界面管理 API Key、查看日志、统计和仪表盘
-- **Docker 部署**：一键启动，数据持久化
+- **Dual Protocol Support**: Compatible with both OpenAI and Anthropic API formats, with independently configurable backends
+- **Priority Queue**: Requests are prioritized by API Key; high-priority requests jump the queue
+- **Concurrency Control**: Configurable concurrency limit; returns 429 when queue is full
+- **Queue Timeout**: Configurable wait timeout; returns 408 on timeout
+- **Rate Limiting**: API Key-level request rate limiting (requests/minute); returns 429 when exceeded
+- **Token Quota**: API Key-level daily/monthly token usage quotas; rejects requests when exceeded
+- **Log Retention**: Automatic log cleanup with configurable retention days and maximum record count
+- **Streaming Passthrough**: SSE event streams forwarded transparently without modification
+- **Token Statistics**: Automatic recording of input/output token counts for both streaming and non-streaming requests
+- **Dashboard Charts**: Chart.js time-series charts with 1h/6h/24h/7d/30d period switching
+- **Debug Mode**: Saves full request/response bodies to disk for troubleshooting
+- **API Key Authentication**: Independent API keys with configurable enable/disable
+- **Admin Login**: Custom login page with Session/Cookie-based authentication
+- **Proxy Support**: Forwards backend requests through HTTP/HTTPS/SOCKS5 proxy servers
+- **CORS Support**: Configurable cross-origin request sources
+- **Structured Logging**: JSON format with full request lifecycle records (including token usage)
+- **Prometheus Metrics**: Queue length, request latency, processing time, etc.
+- **Embedded Admin Panel**: Sci-fi themed UI for managing API Keys, viewing logs, statistics, and dashboard
+- **Docker Deployment**: One-command startup with persistent data storage
 
-## 快速开始
+## Quick Start
 
-### 本地运行
+### Local Run
 
 ```bash
-# 1. 创建虚拟环境并安装依赖
+# 1. Create virtual environment and install dependencies
 uv sync
 
-# 2. 编辑配置（config.local.yaml 会自动覆盖 config.yaml）
+# 2. Edit configuration (config.local.yaml will automatically override config.yaml)
 cp config.yaml config.local.yaml
-# 修改 openai_backend.base_url、anthropic_backend.base_url 等（也可启动后在管理页面配置）
-# 不配置的值将使用代码默认值
+# Modify openai_backend.base_url, anthropic_backend.base_url, etc. (or configure via admin panel after startup)
+# Unset values will use code defaults
 
-# 3. 启动（自动使用虚拟环境）
+# 3. Start (automatically uses virtual environment)
 uv run python -m app.main
 ```
 
-### Docker Compose 部署
+### Docker Compose
 
 ```bash
-# 1. 编辑配置文件
-vim config.yaml  # 修改启动配置（server、admin 账号等）
+# 1. Edit config file
+vim config.yaml  # Modify startup config (server, admin credentials, etc.)
 
-# 2. 启动
+# 2. Start
 docker-compose up -d
 
-# 3. 查看日志
+# 3. View logs
 docker-compose logs -f
 ```
 
-### 裸机 Docker 部署
+### Bare Docker
 
 ```bash
-# 构建
+# Build
 docker build -t llm-gateway-proxy .
 
-# 运行
+# Run
 docker run -d \
   --name llm-gateway \
   -p 8001:8001 \
@@ -69,9 +71,9 @@ docker run -d \
   llm-gateway-proxy
 ```
 
-## 配置说明
+## Configuration
 
-`config.yaml` 仅包含启动级配置（server、auth、admin、database、queue、logging、log_retention、cors、proxy），运行时配置（队列、后端、Debug、Metrics、Proxy）也可通过管理页面控制。默认值见 `app/config.py`。
+`config.yaml` contains only startup-level settings (server, auth, admin, database, queue, logging, log_retention, cors, proxy). Runtime configuration (queue, backend, debug, metrics, proxy) can also be managed through the admin panel. For default values, see `app/config.py`.
 
 ```yaml
 server:
@@ -79,14 +81,14 @@ server:
   port: 8001
 
 auth:
-  enabled: true                  # API Key 认证开关
+  enabled: true                  # API Key authentication toggle
 
 admin:
   enabled: true
   username: "admin"
   password: "admin123"
-  secret_key: "llm-gateway-default-secret"  # Session 加密密钥
-  session_https_only: false      # 生产环境建议设为 true
+  secret_key: "llm-gateway-default-secret"  # Session encryption key
+  session_https_only: false      # Set to true in production
 
 database:
   path: "data/gateway.db"
@@ -94,35 +96,35 @@ database:
 queue:
   max_length: 5
   concurrency: 1
-  timeout: 300                   # 队列等待超时（秒），0=无限
+  timeout: 300                   # Queue wait timeout (seconds), 0 = unlimited
 
 logging:
   level: "INFO"
   format: "json"                 # "json" | "text"
 
 log_retention:
-  retention_days: 90             # 日志保留天数
-  max_records: 100000            # 最大日志记录数
+  retention_days: 90             # Log retention days
+  max_records: 100000            # Maximum log records
 
 cors:
   origins:
-    - "*"                        # 允许跨域来源列表
+    - "*"                        # Allowed CORS origins
 
 proxy:
-  enabled: false                 # 代理服务器开关
+  enabled: false                 # Proxy toggle
   protocol: "http"               # "http" | "https" | "socks5"
   host: ""
   port: 0
-  username: ""                   # 代理认证（可选）
+  username: ""                   # Proxy authentication (optional)
   password: ""
 ```
 
-## API 使用
+## API Usage
 
-### 代理请求
+### Proxy Requests
 
 ```bash
-# OpenAI 格式
+# OpenAI format
 curl http://localhost:8001/v1/chat/completions \
   -H "Authorization: Bearer sk-your-api-key" \
   -H "Content-Type: application/json" \
@@ -132,7 +134,7 @@ curl http://localhost:8001/v1/chat/completions \
     "stream": true
   }'
 
-# Anthropic 格式
+# Anthropic format
 curl http://localhost:8001/v1/messages \
   -H "Authorization: Bearer sk-your-api-key" \
   -H "Content-Type: application/json" \
@@ -143,109 +145,109 @@ curl http://localhost:8001/v1/messages \
     "stream": true
   }'
 
-# 查看队列状态（无需认证）
+# Check queue status (no auth required)
 curl http://localhost:8001/v1/queue
 ```
 
-### 管理接口
+### Admin API
 
 ```bash
-# 登录获取 session cookie
+# Login to get session cookie
 curl -c cookies.txt -X POST http://localhost:8001/admin/login \
   -d "username=admin&password=admin123"
 
-# 获取队列状态
+# Get queue status
 curl -b cookies.txt http://localhost:8001/admin/api/queue
 
-# 创建 API Key（支持速率限制和 Token 配额）
+# Create API Key (with rate limit and token quota support)
 curl -b cookies.txt -X POST http://localhost:8001/admin/api/keys \
   -H "Content-Type: application/json" \
   -d '{"name": "alice", "priority": 50, "rate_limit": 30, "token_quota_daily": 100000}'
 
-# 查询日志
+# Query logs
 curl -b cookies.txt "http://localhost:8001/admin/api/logs?page=1&per_page=20"
 
-# 获取统计（支持时间范围: 1h, 6h, 24h, 7d, 30d, all）
+# Get statistics (supported time ranges: 1h, 6h, 24h, 7d, 30d, all)
 curl -b cookies.txt "http://localhost:8001/admin/api/stats?period=24h"
 
-# 获取时间序列数据（用于图表）
+# Get time-series data (for charts)
 curl -b cookies.txt "http://localhost:8001/admin/api/stats/timeseries?period=24h"
 
-# 更新代理配置
+# Update proxy config
 curl -b cookies.txt -X PUT http://localhost:8001/admin/api/config \
   -H "Content-Type: application/json" \
   -d '{"proxy": {"enabled": true, "protocol": "socks5", "host": "127.0.0.1", "port": 1080}}'
 ```
 
-## 管理面板
+## Admin Panel
 
-浏览器访问 `http://localhost:8001/admin`，使用配置的管理员账号登录。
+Access `http://localhost:8001/admin` in your browser and log in with the configured admin credentials.
 
-- **登录页面**：自定义登录表单，蓝紫渐变科技感设计，基于 Session/Cookie 认证（24小时过期）
-- **Dashboard**：实时队列状态、请求统计，Chart.js 时间序列图表（Requests/Tokens），支持时间范围选择（1h/6h/24h/7d/30d），按 API Key 展示请求数和 Token 用量
-- **API Keys**：创建/编辑/删除 API Key，创建时显示完整 Key 并支持一键复制
-- **Logs**：查看请求历史，含 Token 用量列和状态码颜色标记，支持按用户和端点筛选分页
-- **Management**：运行时配置管理，分三个 Tab（Scheduling / Backend / System）
-  - **Scheduling**：队列配置（Max Length、Concurrency）+ 优先级策略
-  - **Backend**：OpenAI 后端 + Anthropic 后端配置，支持一键同步
-  - **System**：Debug 模式、Prometheus Metrics、代理服务器（HTTP/HTTPS/SOCKS5）配置
+- **Login Page**: Custom login form with blue-purple gradient sci-fi design, based on Session/Cookie authentication (24-hour expiry)
+- **Dashboard**: Real-time queue status, request statistics, Chart.js time-series charts (Requests/Tokens), time range selection (1h/6h/24h/7d/30d), request count and token usage by API Key
+- **API Keys**: Create/edit/delete API Keys, full Key displayed on creation with one-click copy
+- **Logs**: Request history with token usage column and status code color coding, filterable by user and endpoint with pagination
+- **Management**: Runtime configuration with three tabs (Scheduling / Backend / System)
+  - **Scheduling**: Queue config (Max Length, Concurrency) + priority strategy
+  - **Backend**: OpenAI backend + Anthropic backend config, with one-click sync
+  - **System**: Debug mode, Prometheus Metrics, proxy server (HTTP/HTTPS/SOCKS5) configuration
 
-## 队列行为
+## Queue Behavior
 
-1. 所有请求按优先级入队（数值越小越优先）
-2. 同一时间只处理 1 个请求
-3. 高优先级请求插入队列头部，不中断当前正在处理的请求
-4. 队列满时返回 HTTP 429
-5. 流式请求持续期间，后续请求排队等待
-6. 队列等待超时时返回 HTTP 408（可通过 `queue.timeout` 配置，0=无限等待）
+1. All requests are enqueued by priority (lower value = higher priority)
+2. Only one request is processed at a time
+3. High-priority requests are inserted at the queue head without interrupting the currently processing request
+4. Returns HTTP 429 when the queue is full
+5. Subsequent requests wait while a streaming request is in progress
+6. Returns HTTP 408 on queue wait timeout (configurable via `queue.timeout`; 0 = unlimited)
 
-## 速率限制与配额
+## Rate Limiting & Quotas
 
-- **速率限制**：通过 API Key 的 `rate_limit` 字段设置（请求数/分钟），超限返回 429
-- **Token 配额**：通过 `token_quota_daily` / `token_quota_monthly` 设置日/月 Token 上限
-- 配额检查基于 SQLite 中已记录的 token 用量（prompt_tokens + completion_tokens）
+- **Rate Limiting**: Controlled by the `rate_limit` field on API Key (requests/minute); returns 429 when exceeded
+- **Token Quotas**: Set daily/monthly token limits via `token_quota_daily` / `token_quota_monthly`
+- Quota checking is based on recorded token usage in SQLite (prompt_tokens + completion_tokens)
 
-## 测试
+## Testing
 
 ```bash
 uv run pytest tests/
 ```
 
-## 开发
+## Development
 
-项目结构：
+Project structure:
 
 ```
 app/
-├── main.py              # 入口，应用工厂，CORS/SessionMiddleware
-├── config.py            # 配置加载（含 Proxy/LogRetention/CorsConfig）
-├── database.py          # SQLite 管理（WAL模式、索引、日志清理）
-├── models.py            # 数据模型
+├── main.py              # Entry point, app factory, CORS/SessionMiddleware
+├── config.py            # Config loading (including Proxy/LogRetention/CorsConfig)
+├── database.py          # SQLite management (WAL mode, indexes, log cleanup)
+├── models.py            # Data models
 ├── api/
-│   ├── proxy.py         # 代理端点（含速率限制、配额检查、超时）
-│   ├── admin_api.py     # 管理 API（含 timeseries）
-│   └── admin_pages.py   # 管理页面（含登录/登出）
+│   ├── proxy.py         # Proxy endpoints (rate limiting, quota check, timeout)
+│   ├── admin_api.py     # Admin API (including time-series)
+│   └── admin_pages.py   # Admin pages (including login/logout)
 ├── core/
-│   ├── queue.py         # 优先级队列（含超时支持）
-│   ├── auth.py          # 认证（Session + API Key）
-│   ├── metrics.py       # 指标
-│   ├── rate_limiter.py  # 内存滑动窗口速率限制器
-│   └── quota_checker.py # Token 用量配额检查
+│   ├── queue.py         # Priority queue (with timeout support)
+│   ├── auth.py          # Authentication (Session + API Key)
+│   ├── metrics.py       # Metrics
+│   ├── rate_limiter.py  # In-memory sliding window rate limiter
+│   └── quota_checker.py # Token usage quota checker
 ├── adapters/
-│   ├── base.py          # 适配器基类（含代理支持）
-│   ├── openai.py        # OpenAI 适配器
-│   └── anthropic.py     # Anthropic 适配器
+│   ├── base.py          # Adapter base class (with proxy support)
+│   ├── openai.py        # OpenAI adapter
+│   └── anthropic.py     # Anthropic adapter
 ├── strategies/
-│   ├── base.py               # 策略抽象
-│   └── api_key_based.py      # API Key 优先级
-├── templates/           # Jinja2 页面模板
+│   ├── base.py          # Strategy abstraction
+│   └── api_key_based.py # API Key priority strategy
+├── templates/           # Jinja2 page templates
 └── static/
-    ├── style.css        # 科技感主题样式
-    └── chart.umd.min.js # Chart.js（本地部署）
+    ├── style.css        # Sci-fi theme styles
+    └── chart.umd.min.js # Chart.js (locally deployed)
 ```
 
-## 扩展点
+## Extension Points
 
-- **优先级策略**：实现 `PriorityStrategy` 接口，通过配置切换
-- **多并发**：修改 `queue.concurrency` > 1，改造为工作协程池
-- **负载均衡**：在适配器层增加 upstream 选择逻辑
+- **Priority Strategy**: Implement the `PriorityStrategy` interface and switch via configuration
+- **Multi-Concurrency**: Set `queue.concurrency` > 1 and refactor to a worker pool
+- **Load Balancing**: Add upstream selection logic in the adapter layer
