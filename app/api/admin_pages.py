@@ -24,3 +24,8 @@ async def admin_api_keys(request: Request, _=Depends(_admin_auth)):
 @router.get("/admin/logs", response_class=HTMLResponse)
 async def admin_logs(request: Request, _=Depends(_admin_auth)):
     return templates.TemplateResponse("logs.html", {"request": request})
+
+
+@router.get("/admin/management", response_class=HTMLResponse)
+async def admin_management(request: Request, _=Depends(_admin_auth)):
+    return templates.TemplateResponse("management.html", {"request": request})

@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h2>Management</h2>
+</div>
+
+<div id="save-toast" style="display:none;position:fixed;top:20px;right:20px;background:#27ae60;color:#fff;padding:12px 20px;border-radius:6px;z-index:200;font-weight:500;">Saved successfully</div>
+
+<form id="config-form" onsubmit="saveConfig(event)">
+
+<!-- Queue -->
+<section class="config-section">
+    <h3>Queue</h3>
+    <div class="form-group">
+        <label>Max Length</label>
+        <input type="number" id="queue-max-length" min="1" max="100" required>
+        <span class="help-text">Maximum number of requests waiting in queue (beyond this returns 429)</span>
+    </div>
+</section>
+
+<!-- Priority -->
+<section class="config-section">
+    <h3>Priority</h3>
+    <div class="form-group">
+        <label>Strategy</label>
+        <select id="priority-strategy">
+            <option value="api_key">API Key</option>
+            <option value="ip_based">IP Based</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label>Default Priority</label>
+        <input type="number" id="priority-default" min="1" max="1000" required>
+        <span class="help-text">Lower number = higher priority</span>
+    </div>
+    <div class="form-group">
+        <label>IP Mapping (YAML)</label>
+        <textarea id="priority-ip-mapping" rows="4" style="font-family:monospace;font-size:12px"></textarea>
+        <span class="help-text">e.g. "192.168.1.100": 1 (one per line, CIDR supported)</span>
+    </div>
+</section>
+
+<!-- Backend -->
+<section class="config-section">
+    <h3>Backend</h3>
+    <div class="form-group">
+        <label>Base URL</label>
+        <input type="text" id="backend-base-url" required>
+    </div>
+    <div class="form-group">
+        <label>API Key</label>
+        <input type="password" id="backend-api-key">
+    </div>
+    <div class="form-group">
+        <label>Timeout (seconds)</label>
+        <input type="number" id="backend-timeout" min="1" max="3600" required>
+    </div>
+</section>
+
+<!-- Debug -->
+<section class="config-section">
+    <h3>Debug</h3>
+    <div class="form-group">
+        <label class="checkbox-label">
+            <input type="checkbox" id="debug-enabled">
+            Enabled
+        </label>
+    </div>
+    <div class="form-group">
+        <label>Directory</label>
+        <input type="text" id="debug-dir">
+    </div>
+</section>
+
+<!-- Metrics -->
+<section class="config-section">
+    <h3>Metrics</h3>
+    <div class="form-group">
+        <label class="checkbox-label">
+            <input type="checkbox" id="metrics-enabled">
+            Prometheus Metrics Enabled
+        </label>
+    </div>
+</section>
+
+<div class="form-actions" style="margin-top:24px">
+    <button type="submit" class="btn btn-primary" style="padding:10px 32px;font-size:15px">Save</button>
+</div>
+
+</form>
+
+<style>
+.config-section {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+}
+.config-section h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+.help-text {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+}
+</style>
+
+<script>
+async function loadConfig() {
+    const res = await fetch('/admin/api/config');
+    const cfg = await res.json();
+
+    document.getElementById('queue-max-length').value = cfg.queue.max_length;
+
+    document.getElementById('priority-strategy').value = cfg.priority.strategy;
+    document.getElementById('priority-default').value = cfg.priority.default_priority;
+    document.getElementById('priority-ip-mapping').value = yamlify(cfg.priority.ip_mapping || {});
+
+    document.getElementById('backend-base-url').value = cfg.backend.base_url;
+    document.getElementById('backend-api-key').value = cfg.backend.api_key;
+    document.getElementById('backend-timeout').value = cfg.backend.timeout;
+
+    document.getElementById('debug-enabled').checked = cfg.debug.enabled;
+    document.getElementById('debug-dir').value = cfg.debug.dir;
+
+    document.getElementById('metrics-enabled').checked = cfg.metrics.enabled;
+}
+
+function yamlify(obj) {
+    return Object.entries(obj).map(([k, v]) => `"${k}": ${v}`).join('\n');
+}
+
+function parseIpMapping(text) {
+    const obj = {};
+    text.split('\n').forEach(line => {
+        line = line.trim();
+        if (!line) return;
+        const m = line.match(/["']?(.+?)["']?\s*:\s*(\d+)/);
+        if (m) obj[m[1]] = parseInt(m[2]);
+    });
+    return obj;
+}
+
+async function saveConfig(e) {
+    e.preventDefault();
+    const body = {
+        queue: {
+            max_length: parseInt(document.getElementById('queue-max-length').value),
+        },
+        priority: {
+            strategy: document.getElementById('priority-strategy').value,
+            default_priority: parseInt(document.getElementById('priority-default').value),
+            ip_mapping: parseIpMapping(document.getElementById('priority-ip-mapping').value),
+        },
+        backend: {
+            base_url: document.getElementById('backend-base-url').value,
+            api_key: document.getElementById('backend-api-key').value,
+            timeout: parseInt(document.getElementById('backend-timeout').value),
+        },
+        debug: {
+            enabled: document.getElementById('debug-enabled').checked,
+            dir: document.getElementById('debug-dir').value,
+        },
+        metrics: {
+            enabled: document.getElementById('metrics-enabled').checked,
+        },
+    };
+
+    const res = await fetch('/admin/api/config', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+
+    if (res.ok) {
+        const toast = document.getElementById('save-toast');
+        toast.style.display = 'block';
+        setTimeout(() => { toast.style.display = 'none'; }, 3000);
+    } else {
+        const err = await res.json();
+        alert('Save failed: ' + (err.detail || JSON.stringify(err)));
+    }
+}
+
+loadConfig();
+</script>
+{% endblock %}

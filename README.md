@@ -148,6 +148,7 @@ curl "http://localhost:8001/admin/api/stats?period=24h" \
 - **Dashboard**：实时队列状态、请求统计，支持时间范围选择（1h/6h/24h/7d/30d），按 API Key 展示请求数和 Token 用量
 - **API Keys**：创建/编辑/删除 API Key，创建时显示完整 Key 并支持一键复制
 - **Logs**：查看请求历史，含 Token 用量列，支持按用户和端点筛选分页
+- **Management**：运行时配置管理（队列、优先级、后端、Debug、Metrics），修改后立即生效
 
 ## 队列行为
 

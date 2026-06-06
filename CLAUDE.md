@@ -89,6 +89,7 @@ See `config.yaml` for all options. Key settings:
 | `GET /admin` | Dashboard |
 | `GET /admin/api-keys` | API key management page |
 | `GET /admin/logs` | Request logs page |
+| **`GET /admin/management`** | **Runtime configuration management page** |
 | `GET /admin/api/queue` | Queue status (JSON) |
 | `GET /admin/api/keys` | List API keys |
 | `POST /admin/api/keys` | Create API key |
@@ -96,6 +97,8 @@ See `config.yaml` for all options. Key settings:
 | `DELETE /admin/api/keys/{id}` | Delete API key |
 | `GET /admin/api/stats` | Dashboard stats (supports `?period=24h&key_id=1`) |
 | `GET /admin/api/logs` | Query logs (paginated, includes token columns) |
+| `GET /admin/api/config` | Get runtime config (queue, priority, backend, debug, metrics) |
+| `PUT /admin/api/config` | Update runtime config (applies immediately) |
 
 ## Request Flow
 

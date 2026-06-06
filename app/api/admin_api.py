@@ -1,8 +1,12 @@
 import secrets
 from datetime import datetime, timezone
+from typing import Optional
 
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
+from app.config import get_config
 from app.core.queue import get_queue
 from app.database import get_db
 from app.models import (
@@ -259,3 +263,131 @@ async def get_logs(request: Request, _=Depends(_admin_auth),
             for r in rows
         ],
     }
+
+
+# ── Management config ──────────────────────────────────────────────
+
+class MutableQueue(BaseModel):
+    max_length: Optional[int] = None
+
+
+class MutablePriority(BaseModel):
+    strategy: Optional[str] = None
+    default_priority: Optional[int] = None
+    ip_mapping: Optional[dict] = None
+
+
+class MutableBackend(BaseModel):
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    timeout: Optional[int] = None
+
+
+class MutableDebug(BaseModel):
+    enabled: Optional[bool] = None
+    dir: Optional[str] = None
+
+
+class MutableMetrics(BaseModel):
+    enabled: Optional[bool] = None
+
+
+class MutableConfig(BaseModel):
+    queue: Optional[MutableQueue] = None
+    priority: Optional[MutablePriority] = None
+    backend: Optional[MutableBackend] = None
+    debug: Optional[MutableDebug] = None
+    metrics: Optional[MutableMetrics] = None
+
+
+@router.get("/config")
+async def get_config_admin(request: Request, _=Depends(_admin_auth)):
+    """Return current runtime configuration sections."""
+    cfg = get_config()
+    return {
+        "queue": {"max_length": cfg.queue.max_length, "concurrency": cfg.queue.concurrency},
+        "priority": {
+            "strategy": cfg.priority.strategy,
+            "default_priority": cfg.priority.default_priority,
+            "ip_mapping": cfg.priority.ip_mapping,
+        },
+        "backend": {
+            "base_url": cfg.backend.base_url,
+            "api_key": cfg.backend.api_key,
+            "timeout": cfg.backend.timeout,
+        },
+        "debug": {"enabled": cfg.debug.enabled, "dir": cfg.debug.dir},
+        "metrics": {"enabled": cfg.metrics.enabled},
+    }
+
+
+@router.put("/config")
+async def update_config_admin(body: MutableConfig, request: Request,
+                               _=Depends(_admin_auth)):
+    """Apply config changes in-memory immediately."""
+    cfg = get_config()
+    changed = []
+
+    # Queue
+    if body.queue and body.queue.max_length is not None:
+        cfg.queue.max_length = body.queue.max_length
+        q = get_queue()
+        q._max_size = body.queue.max_length
+        changed.append("queue.max_length")
+
+    # Priority
+    if body.priority:
+        if body.priority.strategy is not None:
+            cfg.priority.strategy = body.priority.strategy
+            changed.append("priority.strategy")
+        if body.priority.default_priority is not None:
+            cfg.priority.default_priority = body.priority.default_priority
+            changed.append("priority.default_priority")
+        if body.priority.ip_mapping is not None:
+            cfg.priority.ip_mapping = body.priority.ip_mapping
+            changed.append("priority.ip_mapping")
+        # Recreate strategy if strategy name changed
+        if body.priority.strategy is not None:
+            from app.strategies.factory import create_strategy
+            import app.api.proxy as proxy_module
+            proxy_module._strategy = create_strategy(cfg.priority.strategy)
+
+    # Backend
+    if body.backend:
+        if body.backend.base_url is not None:
+            cfg.backend.base_url = body.backend.base_url
+            changed.append("backend.base_url")
+        if body.backend.api_key is not None:
+            cfg.backend.api_key = body.backend.api_key
+            changed.append("backend.api_key")
+        if body.backend.timeout is not None:
+            cfg.backend.timeout = body.backend.timeout
+            changed.append("backend.timeout")
+        # Recreate adapters so they pick up new config
+        from app.api.proxy import _openai_adapter, _anthropic_adapter
+        from app.adapters.openai import OpenAIAdapter
+        from app.adapters.anthropic import AnthropicAdapter
+        import app.api.proxy as proxy_module
+        proxy_module._openai_adapter = OpenAIAdapter(cfg.backend)
+        proxy_module._anthropic_adapter = AnthropicAdapter(cfg.backend)
+
+    # Debug
+    if body.debug:
+        if body.debug.enabled is not None:
+            cfg.debug.enabled = body.debug.enabled
+            changed.append("debug.enabled")
+        if body.debug.dir is not None:
+            cfg.debug.dir = body.debug.dir
+            changed.append("debug.dir")
+
+    # Metrics
+    if body.metrics:
+        if body.metrics.enabled is not None:
+            cfg.metrics.enabled = body.metrics.enabled
+            changed.append("metrics.enabled")
+
+    import structlog
+    logger = structlog.get_logger()
+    logger.info("config.updated", changes=changed)
+
+    return {"ok": True, "changes": changed}
