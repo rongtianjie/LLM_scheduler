@@ -39,20 +39,38 @@
     </div>
 </section>
 
-<!-- Backend -->
+<!-- OpenAI Backend -->
 <section class="config-section">
-    <h3>Backend</h3>
+    <h3>OpenAI Backend</h3>
     <div class="form-group">
         <label>Base URL</label>
-        <input type="text" id="backend-base-url" required>
+        <input type="text" id="openai-backend-base-url" required>
     </div>
     <div class="form-group">
         <label>API Key</label>
-        <input type="password" id="backend-api-key">
+        <input type="password" id="openai-backend-api-key">
     </div>
     <div class="form-group">
         <label>Timeout (seconds)</label>
-        <input type="number" id="backend-timeout" min="1" max="3600" required>
+        <input type="number" id="openai-backend-timeout" min="1" max="3600" required>
+    </div>
+</section>
+
+<!-- Anthropic Backend -->
+<section class="config-section">
+    <h3>Anthropic Backend</h3>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label style="flex:none">Base URL</label>
+        <input type="text" id="anthropic-backend-base-url" required style="flex:1">
+        <button type="button" id="sync-backend-btn" class="btn" style="flex:none;padding:6px 12px;font-size:12px;white-space:nowrap" title="Copy OpenAI config to Anthropic">↻ Sync</button>
+    </div>
+    <div class="form-group">
+        <label>API Key</label>
+        <input type="password" id="anthropic-backend-api-key">
+    </div>
+    <div class="form-group">
+        <label>Timeout (seconds)</label>
+        <input type="number" id="anthropic-backend-timeout" min="1" max="3600" required>
     </div>
 </section>
 
@@ -99,9 +117,13 @@ async function loadConfig() {
     document.getElementById('priority-strategy').value = cfg.priority.strategy;
     document.getElementById('priority-default').value = cfg.priority.default_priority;
 
-    document.getElementById('backend-base-url').value = cfg.backend.base_url;
-    document.getElementById('backend-api-key').value = cfg.backend.api_key;
-    document.getElementById('backend-timeout').value = cfg.backend.timeout;
+    document.getElementById('openai-backend-base-url').value = cfg.openai_backend.base_url;
+    document.getElementById('openai-backend-api-key').value = cfg.openai_backend.api_key;
+    document.getElementById('openai-backend-timeout').value = cfg.openai_backend.timeout;
+
+    document.getElementById('anthropic-backend-base-url').value = cfg.anthropic_backend.base_url;
+    document.getElementById('anthropic-backend-api-key').value = cfg.anthropic_backend.api_key;
+    document.getElementById('anthropic-backend-timeout').value = cfg.anthropic_backend.timeout;
 
     document.getElementById('debug-enabled').checked = cfg.debug.enabled;
     document.getElementById('debug-dir').value = cfg.debug.dir;
@@ -120,10 +142,15 @@ async function saveConfig(e) {
             strategy: document.getElementById('priority-strategy').value,
             default_priority: parseInt(document.getElementById('priority-default').value),
         },
-        backend: {
-            base_url: document.getElementById('backend-base-url').value,
-            api_key: document.getElementById('backend-api-key').value,
-            timeout: parseInt(document.getElementById('backend-timeout').value),
+        openai_backend: {
+            base_url: document.getElementById('openai-backend-base-url').value,
+            api_key: document.getElementById('openai-backend-api-key').value,
+            timeout: parseInt(document.getElementById('openai-backend-timeout').value),
+        },
+        anthropic_backend: {
+            base_url: document.getElementById('anthropic-backend-base-url').value,
+            api_key: document.getElementById('anthropic-backend-api-key').value,
+            timeout: parseInt(document.getElementById('anthropic-backend-timeout').value),
         },
         debug: {
             enabled: document.getElementById('debug-enabled').checked,
@@ -149,6 +176,27 @@ async function saveConfig(e) {
         alert('Save failed: ' + (err.detail || JSON.stringify(err)));
     }
 }
+
+// Sync button: copy OpenAI values to Anthropic fields
+document.getElementById('sync-backend-btn').addEventListener('click', async function() {
+    document.getElementById('anthropic-backend-base-url').value =
+        document.getElementById('openai-backend-base-url').value;
+    document.getElementById('anthropic-backend-api-key').value =
+        document.getElementById('openai-backend-api-key').value;
+    document.getElementById('anthropic-backend-timeout').value =
+        document.getElementById('openai-backend-timeout').value;
+
+    // Also sync server-side immediately
+    const res = await fetch('/admin/api/config/sync-openai-to-anthropic', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+    });
+    if (res.ok) {
+        const toast = document.getElementById('save-toast');
+        toast.classList.add('show');
+        setTimeout(() => { toast.classList.remove('show'); }, 3000);
+    }
+});
 
 loadConfig();
 </script>

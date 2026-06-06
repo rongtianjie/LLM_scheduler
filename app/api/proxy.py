@@ -38,8 +38,8 @@ def _ensure_adapters():
     global _openai_adapter, _anthropic_adapter, _strategy
     if _openai_adapter is None:
         config = get_config()
-        _openai_adapter = OpenAIAdapter(config.backend)
-        _anthropic_adapter = AnthropicAdapter(config.backend)
+        _openai_adapter = OpenAIAdapter(config.openai_backend)
+        _anthropic_adapter = AnthropicAdapter(config.anthropic_backend)
         _strategy = create_strategy(config.priority.strategy)
 
 
@@ -263,7 +263,7 @@ async def _models_list(request: Request) -> Response:
     config = get_config()
     await authenticate_request(request)
 
-    url = f"{config.backend.base_url}/models"
+    url = f"{config.openai_backend.base_url}/models"
 
     # Forward client headers as-is, but override Host and add backend auth
     headers = dict(request.headers)
@@ -271,14 +271,14 @@ async def _models_list(request: Request) -> Response:
     for key in ("host", "connection", "content-length", "content-encoding",
                 "transfer-encoding", "x-forwarded-for", "x-forwarded-proto"):
         headers.pop(key, None)
-    if config.backend.api_key:
-        headers["Authorization"] = f"Bearer {config.backend.api_key}"
+    if config.openai_backend.api_key:
+        headers["Authorization"] = f"Bearer {config.openai_backend.api_key}"
 
     import httpx
     import structlog
     logger = structlog.get_logger()
     try:
-        async with httpx.AsyncClient(timeout=config.backend.timeout,
+        async with httpx.AsyncClient(timeout=config.openai_backend.timeout,
                                      trust_env=False) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code != 200:

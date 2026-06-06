@@ -6,7 +6,7 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from app.config import get_config
+from app.config import BackendConfig, get_config
 from app.core.queue import get_queue
 from app.database import get_db
 from app.models import (
@@ -375,9 +375,33 @@ class MutableMetrics(BaseModel):
 class MutableConfig(BaseModel):
     queue: Optional[MutableQueue] = None
     priority: Optional[MutablePriority] = None
-    backend: Optional[MutableBackend] = None
+    openai_backend: Optional[MutableBackend] = None
+    anthropic_backend: Optional[MutableBackend] = None
     debug: Optional[MutableDebug] = None
     metrics: Optional[MutableMetrics] = None
+
+
+def _apply_backend(config: BackendConfig, mutable: MutableBackend, prefix: str, changed: list):
+    if mutable.base_url is not None:
+        config.base_url = mutable.base_url
+        changed.append(f"{prefix}.base_url")
+    if mutable.api_key is not None:
+        config.api_key = mutable.api_key
+        changed.append(f"{prefix}.api_key")
+    if mutable.timeout is not None:
+        config.timeout = mutable.timeout
+        changed.append(f"{prefix}.timeout")
+
+
+def _recreate_adapter(adapter_name: str, backend_config: BackendConfig):
+    """Recreate a single adapter module-level variable."""
+    import app.api.proxy as proxy_module
+    if adapter_name == "openai":
+        from app.adapters.openai import OpenAIAdapter
+        proxy_module._openai_adapter = OpenAIAdapter(backend_config)
+    elif adapter_name == "anthropic":
+        from app.adapters.anthropic import AnthropicAdapter
+        proxy_module._anthropic_adapter = AnthropicAdapter(backend_config)
 
 
 @router.get("/config")
@@ -390,10 +414,15 @@ async def get_config_admin(request: Request, _=Depends(_admin_auth)):
             "strategy": cfg.priority.strategy,
             "default_priority": cfg.priority.default_priority,
         },
-        "backend": {
-            "base_url": cfg.backend.base_url,
-            "api_key": cfg.backend.api_key,
-            "timeout": cfg.backend.timeout,
+        "openai_backend": {
+            "base_url": cfg.openai_backend.base_url,
+            "api_key": cfg.openai_backend.api_key,
+            "timeout": cfg.openai_backend.timeout,
+        },
+        "anthropic_backend": {
+            "base_url": cfg.anthropic_backend.base_url,
+            "api_key": cfg.anthropic_backend.api_key,
+            "timeout": cfg.anthropic_backend.timeout,
         },
         "debug": {"enabled": cfg.debug.enabled, "dir": cfg.debug.dir},
         "metrics": {"enabled": cfg.metrics.enabled},
@@ -432,24 +461,15 @@ async def update_config_admin(body: MutableConfig, request: Request,
             import app.api.proxy as proxy_module
             proxy_module._strategy = create_strategy(cfg.priority.strategy)
 
-    # Backend
-    if body.backend:
-        if body.backend.base_url is not None:
-            cfg.backend.base_url = body.backend.base_url
-            changed.append("backend.base_url")
-        if body.backend.api_key is not None:
-            cfg.backend.api_key = body.backend.api_key
-            changed.append("backend.api_key")
-        if body.backend.timeout is not None:
-            cfg.backend.timeout = body.backend.timeout
-            changed.append("backend.timeout")
-        # Recreate adapters so they pick up new config
-        from app.api.proxy import _openai_adapter, _anthropic_adapter
-        from app.adapters.openai import OpenAIAdapter
-        from app.adapters.anthropic import AnthropicAdapter
-        import app.api.proxy as proxy_module
-        proxy_module._openai_adapter = OpenAIAdapter(cfg.backend)
-        proxy_module._anthropic_adapter = AnthropicAdapter(cfg.backend)
+    # Backend — OpenAI
+    if body.openai_backend:
+        _apply_backend(cfg.openai_backend, body.openai_backend, "openai_backend", changed)
+        _recreate_adapter("openai", cfg.openai_backend)
+
+    # Backend — Anthropic
+    if body.anthropic_backend:
+        _apply_backend(cfg.anthropic_backend, body.anthropic_backend, "anthropic_backend", changed)
+        _recreate_adapter("anthropic", cfg.anthropic_backend)
 
     # Debug
     if body.debug:
@@ -471,3 +491,20 @@ async def update_config_admin(body: MutableConfig, request: Request,
     logger.info("config.updated", changes=changed)
 
     return {"ok": True, "changes": changed}
+
+
+@router.post("/config/sync-openai-to-anthropic")
+async def sync_openai_to_anthropic(request: Request,
+                                    _=Depends(_admin_auth)):
+    """Copy OpenAI backend config to Anthropic backend config."""
+    cfg = get_config()
+    cfg.anthropic_backend.base_url = cfg.openai_backend.base_url
+    cfg.anthropic_backend.api_key = cfg.openai_backend.api_key
+    cfg.anthropic_backend.timeout = cfg.openai_backend.timeout
+    _recreate_adapter("anthropic", cfg.anthropic_backend)
+
+    import structlog
+    logger = structlog.get_logger()
+    logger.info("config.synced", source="openai_backend", target="anthropic_backend")
+
+    return {"ok": True, "changes": ["anthropic_backend.base_url", "anthropic_backend.api_key", "anthropic_backend.timeout"]}
