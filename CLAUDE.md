@@ -42,14 +42,14 @@ and flushed when the stream completes.
 ## Running
 
 ```bash
-# Install
-pip install -r requirements.txt
+# Create venv and install dependencies
+uv sync
 
 # Configure
 cp config.yaml config.local.yaml  # edit as needed
 
-# Run (dev)
-python -m app.main
+# Run (dev, uses virtual environment automatically)
+uv run python -m app.main
 
 # Run (production with Docker)
 docker-compose up -d
@@ -58,8 +58,7 @@ docker-compose up -d
 ## Testing
 
 ```bash
-pip install pytest pytest-asyncio
-python -m pytest tests/
+uv run pytest tests/
 ```
 
 ## Configuration (config.yaml)

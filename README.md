@@ -21,15 +21,15 @@
 ### 本地运行
 
 ```bash
-# 1. 安装依赖
-pip install -r requirements.txt
+# 1. 创建虚拟环境并安装依赖
+uv sync
 
 # 2. 编辑配置（config.local.yaml 会自动覆盖 config.yaml）
 cp config.yaml config.local.yaml
 # 修改 backend.base_url、backend.api_key 等
 
-# 3. 启动
-python -m app.main
+# 3. 启动（自动使用虚拟环境）
+uv run python -m app.main
 ```
 
 ### Docker Compose 部署
@@ -161,8 +161,7 @@ curl "http://localhost:8001/admin/api/stats?period=24h" \
 ## 测试
 
 ```bash
-pip install pytest pytest-asyncio
-python -m pytest tests/
+uv run pytest tests/
 ```
 
 ## 开发
