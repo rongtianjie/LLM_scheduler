@@ -35,6 +35,19 @@ wait_time_seconds = Histogram(
     buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
 )
 
+backend_request_duration_seconds = Histogram(
+    "gateway_backend_request_duration_seconds",
+    "Backend request duration in seconds",
+    ["backend", "protocol"],
+    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0),
+)
+
+gateway_tokens_total = Counter(
+    "gateway_tokens_total",
+    "Total tokens processed",
+    ["model", "type"],
+)
+
 
 def metrics_enabled() -> bool:
     try:

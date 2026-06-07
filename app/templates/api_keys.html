@@ -2,7 +2,24 @@
 {% block content %}
 <div class="page-header">
     <h2>API Keys</h2>
-    <button class="btn btn-primary" onclick="showCreateForm()">+ New Key</button>
+    <div style="display:flex;gap:8px;align-items:center">
+        <div class="column-selector">
+            <button class="btn btn-sm" onclick="toggleColumnMenu()" title="Column Settings">⚙ Columns</button>
+            <div class="column-menu" id="column-menu" style="display:none">
+                <label class="column-option"><input type="checkbox" checked disabled> Name</label>
+                <label class="column-option"><input type="checkbox" checked disabled> API Key</label>
+                <label class="column-option"><input type="checkbox" checked disabled> Enabled</label>
+                <label class="column-option"><input type="checkbox" checked disabled> Actions</label>
+                <label class="column-option"><input type="checkbox" data-col="id" onchange="toggleColumn('id', this.checked)"> ID</label>
+                <label class="column-option"><input type="checkbox" data-col="priority" onchange="toggleColumn('priority', this.checked)"> Priority</label>
+                <label class="column-option"><input type="checkbox" data-col="rate_limit" onchange="toggleColumn('rate_limit', this.checked)"> Rate Limit</label>
+                <label class="column-option"><input type="checkbox" data-col="token_quota_daily" onchange="toggleColumn('token_quota_daily', this.checked)"> Token Quota Daily</label>
+                <label class="column-option"><input type="checkbox" data-col="token_quota_monthly" onchange="toggleColumn('token_quota_monthly', this.checked)"> Token Quota Monthly</label>
+                <label class="column-option"><input type="checkbox" data-col="created" onchange="toggleColumn('created', this.checked)"> Created</label>
+            </div>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateForm()">+ New Key</button>
+    </div>
 </div>
 
 <!-- Create form -->
@@ -40,11 +57,10 @@
     </div>
 </div>
 
-<!-- Key created modal (show once) -->
+<!-- Key created modal -->
 <div class="modal-overlay" id="created-modal" style="display:none">
     <div class="modal">
         <h3>API Key Created</h3>
-        <p style="margin-bottom:12px;color:var(--danger);font-weight:600;">Copy this key now — it will not be shown again.</p>
         <div class="form-group">
             <label>Key</label>
             <div style="display:flex;gap:8px">
@@ -58,16 +74,55 @@
     </div>
 </div>
 
+<!-- Edit modal -->
+<div class="modal-overlay" id="edit-modal" style="display:none">
+    <div class="modal">
+        <h3>Edit API Key</h3>
+        <form id="edit-form" onsubmit="saveEdit(event)">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="edit-name" readonly style="background:#f5f5f5">
+            </div>
+            <div class="form-group">
+                <label>Priority</label>
+                <input type="number" id="edit-priority" min="1">
+            </div>
+            <div class="form-group">
+                <label>Rate Limit (req/min, 0=unlimited)</label>
+                <input type="number" id="edit-rate-limit" min="0">
+            </div>
+            <div class="form-row">
+                <div class="form-group" style="flex:1">
+                    <label>Token Quota Daily</label>
+                    <input type="number" id="edit-quota-daily" min="0">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label>Token Quota Monthly</label>
+                    <input type="number" id="edit-quota-monthly" min="0">
+                </div>
+            </div>
+            <input type="hidden" id="edit-key-id">
+            <div class="form-actions">
+                <button type="button" class="btn" onclick="hideEditModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Keys table -->
 <table class="table">
     <thead>
         <tr>
-            <th>ID</th>
+            <th class="col-id">ID</th>
             <th>Name</th>
             <th>API Key</th>
-            <th>Priority</th>
+            <th class="col-priority">Priority</th>
             <th>Enabled</th>
-            <th>Created</th>
+            <th class="col-rate_limit">Rate Limit</th>
+            <th class="col-token_quota_daily">Quota Daily</th>
+            <th class="col-token_quota_monthly">Quota Monthly</th>
+            <th class="col-created">Created</th>
             <th>Actions</th>
         </tr>
     </thead>
@@ -76,24 +131,96 @@
 </table>
 
 <script>
+// Column visibility from localStorage
+let visibleColumns = JSON.parse(localStorage.getItem('api_keys_columns') || '{"id":false,"priority":false,"rate_limit":false,"token_quota_daily":false,"token_quota_monthly":false,"created":false}');
+
+function applyColumnVisibility() {
+    for (const [col, visible] of Object.entries(visibleColumns)) {
+        document.querySelectorAll('.col-' + col).forEach(el => el.style.display = visible ? '' : 'none');
+    }
+    // Update checkbox states in menu
+    document.querySelectorAll('#column-menu input[data-col]').forEach(cb => {
+        cb.checked = visibleColumns[cb.dataset.col] || false;
+    });
+}
+
+function toggleColumn(col, visible) {
+    visibleColumns[col] = visible;
+    localStorage.setItem('api_keys_columns', JSON.stringify(visibleColumns));
+    applyColumnVisibility();
+    loadKeys();
+}
+
+function toggleColumnMenu() {
+    const menu = document.getElementById('column-menu');
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+// Close column menu when clicking outside
+document.addEventListener('click', function(e) {
+    const sel = document.querySelector('.column-selector');
+    if (sel && !sel.contains(e.target)) {
+        document.getElementById('column-menu').style.display = 'none';
+    }
+});
+
+applyColumnVisibility();
+
 async function loadKeys() {
     const res = await fetch('/admin/api/keys');
     const keys = await res.json();
     const tbody = document.getElementById('keys-table-body');
+    const vc = visibleColumns;
     tbody.innerHTML = keys.map(k => `
         <tr>
-            <td>${k.id}</td>
+            <td class="col-id" style="display:${vc.id ? '' : 'none'}">${k.id}</td>
             <td>${k.name}</td>
             <td><code style="cursor:pointer;user-select:all" onclick="copyText(this)" title="Click to copy">${k.key}</code></td>
-            <td>${k.priority}</td>
+            <td class="col-priority" style="display:${vc.priority ? '' : 'none'}">${k.priority}</td>
             <td>${k.enabled ? '✅' : '❌'}</td>
-            <td>${k.created_at ? new Date(k.created_at).toLocaleDateString() : '-'}</td>
+            <td class="col-rate_limit" style="display:${vc.rate_limit ? '' : 'none'}">${k.rate_limit || '-'}</td>
+            <td class="col-token_quota_daily" style="display:${vc.token_quota_daily ? '' : 'none'}">${k.token_quota_daily || '-'}</td>
+            <td class="col-token_quota_monthly" style="display:${vc.token_quota_monthly ? '' : 'none'}">${k.token_quota_monthly || '-'}</td>
+            <td class="col-created" style="display:${vc.created ? '' : 'none'}">${k.created_at ? new Date(k.created_at).toLocaleDateString() : '-'}</td>
             <td class="actions">
+                <button class="btn btn-sm" onclick="editKey(${k.id}, '${k.name}', ${k.priority}, ${k.rate_limit}, ${k.token_quota_daily}, ${k.token_quota_monthly})">✎ Edit</button>
                 <button class="btn btn-sm" onclick="toggleKey(${k.id}, ${!k.enabled})">${k.enabled ? 'Disable' : 'Enable'}</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteKey(${k.id})">Delete</button>
             </td>
         </tr>
     `).join('');
+}
+
+function editKey(id, name, priority, rateLimit, quotaDaily, quotaMonthly) {
+    document.getElementById('edit-key-id').value = id;
+    document.getElementById('edit-name').value = name;
+    document.getElementById('edit-priority').value = priority;
+    document.getElementById('edit-rate-limit').value = rateLimit;
+    document.getElementById('edit-quota-daily').value = quotaDaily;
+    document.getElementById('edit-quota-monthly').value = quotaMonthly;
+    document.getElementById('edit-modal').style.display = 'flex';
+}
+
+function hideEditModal() {
+    document.getElementById('edit-modal').style.display = 'none';
+}
+
+async function saveEdit(e) {
+    e.preventDefault();
+    const id = document.getElementById('edit-key-id').value;
+    const body = {
+        priority: parseInt(document.getElementById('edit-priority').value) || 100,
+        rate_limit: parseInt(document.getElementById('edit-rate-limit').value) || 0,
+        token_quota_daily: parseInt(document.getElementById('edit-quota-daily').value) || 0,
+        token_quota_monthly: parseInt(document.getElementById('edit-quota-monthly').value) || 0,
+    };
+    await fetch(`/admin/api/keys/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    });
+    hideEditModal();
+    loadKeys();
 }
 
 async function createKey(e) {
@@ -112,7 +239,6 @@ async function createKey(e) {
     form.reset();
     hideCreateForm();
     loadKeys();
-    // Show the created key in a modal
     document.getElementById('created-key-value').value = keyData.key;
     document.getElementById('created-modal').style.display = 'flex';
 }
@@ -131,7 +257,6 @@ function hideCreatedModal() {
 function copyText(el) {
     const text = el.textContent;
     navigator.clipboard.writeText(text).catch(() => {});
-    // Brief visual feedback
     const orig = el.title;
     el.title = 'Copied!';
     setTimeout(() => el.title = orig, 1000);

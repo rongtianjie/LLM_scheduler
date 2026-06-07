@@ -411,3 +411,59 @@ def test_admin_keys_with_rate_limit(client):
     assert data["token_quota_daily"] == 0
     assert data["token_quota_monthly"] == 0
 
+
+# ── New feature tests ────────────────────────────────────────────
+
+def test_backend_health_api(client):
+    """GET /admin/api/backends/health returns health data."""
+    response = client.get("/admin/api/backends/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+
+
+def test_health_ready_endpoint(client):
+    """GET /health/ready returns ready status."""
+    response = client.get("/health/ready")
+    assert response.status_code in (200, 503)
+    data = response.json()
+    assert "status" in data
+
+
+def test_body_size_limit_exceeded(client):
+    """Request exceeding max_body_size returns 413."""
+    import app.config as cfg_module
+    cfg_module._config.request.max_body_size = 100
+    # Create a payload larger than 100 bytes
+    large_payload = {"model": "gpt-4", "messages": [{"role": "user", "content": "x" * 500}]}
+    response = client.post("/v1/chat/completions", json=large_payload)
+    assert response.status_code == 413
+
+
+def test_request_cancel_endpoint_auth_required(client):
+    """DELETE /v1/queue/{id} requires auth when enabled."""
+    import app.config as cfg_module
+    cfg_module._config.auth.enabled = True
+    response = client.delete("/v1/queue/nonexistent")
+    assert response.status_code == 401
+
+
+def test_admin_password_change_requires_auth(client):
+    """PUT /admin/api/admin/password requires admin session (returns 401 or 403)."""
+    response = client.put("/admin/api/admin/password", json={
+        "old_password": "old", "new_password": "new"
+    })
+    assert response.status_code in (401, 403)
+
+
+def test_config_update_backends_resets_indices(client):
+    """Updating backends via config API resets round-robin indices."""
+    from app.api.proxy import _backend_indices
+    _backend_indices["openai"] = 5
+    response = client.put("/admin/api/config", json={
+        "backends": [{"name": "new", "base_url": "http://new", "protocols": ["openai"]}]
+    })
+    assert response.status_code == 200
+    # After reset, index should be cleared
+    assert "openai" not in _backend_indices or _backend_indices.get("openai", 0) == 0
+

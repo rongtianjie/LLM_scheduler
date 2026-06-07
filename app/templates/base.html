@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,8 +8,9 @@
 </head>
 <body>
     <div class="top-accent"></div>
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
     <div class="layout">
-        <nav class="sidebar">
+        <nav class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <h1>LLM Scheduler</h1>
                 <span class="sidebar-subtitle">Admin Console</span>
@@ -22,10 +23,14 @@
             </ul>
             <div class="sidebar-footer">
                 <span class="sidebar-user">{{ request.session.get('username', 'admin') }}</span>
-                <a href="/admin/logout" class="logout-link">Logout</a>
+                <div style="display:flex;align-items:center;gap:4px">
+                    <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn" title="Toggle dark mode">🌙</button>
+                    <a href="/admin/logout" class="logout-link">Logout</a>
+                </div>
             </div>
         </nav>
         <main class="content">
+            <button class="hamburger" onclick="toggleSidebar()" style="margin-bottom:12px">☰</button>
             {% block content %}{% endblock %}
         </main>
     </div>
@@ -41,6 +46,42 @@
             return res;
         });
     };
+
+    // Dark mode
+    (function() {
+        const saved = localStorage.getItem('theme');
+        if (saved === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.getElementById('theme-btn').textContent = '☀️';
+        }
+    })();
+
+    function toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        document.getElementById('theme-btn').textContent = next === 'dark' ? '☀️' : '🌙';
+    }
+
+    // Responsive sidebar
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        const isOpen = sidebar.classList.contains('open');
+        if (isOpen) {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('show');
+        } else {
+            sidebar.classList.add('open');
+            overlay.classList.add('show');
+        }
+    }
+
+    function closeSidebar() {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebar-overlay').classList.remove('show');
+    }
     </script>
 </body>
 </html>

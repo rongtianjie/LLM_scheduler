@@ -25,11 +25,15 @@ A production-grade LLM API gateway proxy with priority queueing, concurrency con
 - **Dashboard Charts**: Chart.js time-series charts with 1h/6h/24h/7d/30d period switching
 - **Debug Mode**: Saves full request/response bodies to disk for troubleshooting
 - **API Key Authentication**: Independent API keys with configurable enable/disable
-- **Admin Login**: Custom login page with Session/Cookie-based authentication
+- **Admin Login**: Custom login page with Session/Cookie-based authentication; bcrypt password hashing with legacy plaintext fallback
 - **Proxy Support**: Forwards backend requests through HTTP/HTTPS/SOCKS5 proxy servers
 - **CORS Support**: Configurable cross-origin request sources
-- **Structured Logging**: JSON format with full request lifecycle records (including token usage)
-- **Prometheus Metrics**: Queue length, request latency, processing time, etc.
+- **Structured Logging**: JSON format with full request lifecycle records (including token usage and trace ID)
+- **Prometheus Metrics**: Queue length, request latency, processing time, backend request duration, token counts
+- **Health Check & Failover**: Automatic backend health probing with unhealthy-node skipping; `/health/ready` for readiness probes
+- **Request Cancellation**: Cancel queued requests via `DELETE /v1/queue/{request_id}`
+- **Model-level Routing**: Route requests to specific backends by model name (exact match > wildcard > protocol fallback)
+- **Dark Mode & Responsive**: CSS dark mode with localStorage persistence; hamburger-menu responsive layout for mobile
 - **Embedded Admin Panel**: Sci-fi themed UI for managing API Keys, viewing logs, statistics, and dashboard
 - **Docker Deployment**: One-command startup with persistent data storage
 
@@ -99,6 +103,10 @@ curl http://localhost:8001/v1/messages \
   -H "Content-Type: application/json" \
   -d '{"model": "claude-3-opus-20240229", "max_tokens": 1024, "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 
+# Cancel a queued request
+curl -X DELETE http://localhost:8001/v1/queue/{request_id} \
+  -H "Authorization: Bearer sk-your-api-key"
+
 # Check queue status (public, no auth required)
 curl http://localhost:8001/v1/queue
 ```
@@ -109,14 +117,14 @@ For the complete API reference with all endpoints, request/response schemas, and
 
 Access `http://localhost:8001/admin` in your browser and log in with the configured admin credentials.
 
-- **Login Page**: Custom login form with blue-purple gradient sci-fi design, based on Session/Cookie authentication (24-hour expiry)
+- **Login Page**: Custom login form with blue-purple gradient sci-fi design, based on Session/Cookie authentication (24-hour expiry), bcrypt password hashing with brute-force lockout (5 failures / 300s)
 - **Dashboard**: Real-time queue status, request statistics, Chart.js time-series charts (Requests/Tokens), time range selection (1h/6h/24h/7d/30d), request count and token usage by API Key
-- **API Keys**: Create/edit/delete API Keys, full Key displayed on creation with one-click copy
-- **Logs**: Request history with token usage column and status code color coding, filterable by user and endpoint with pagination
-- **Management**: Runtime configuration with three tabs (Scheduling / Backend / System)
+- **API Keys**: Create/edit/delete API Keys, full Key always visible and copyable, configurable column visibility with localStorage persistence
+- **Logs**: Request history with token usage column and status code color coding, filterable by user, model, status, date range, and endpoint with pagination; auto-refresh toggle
+- **Management**: Runtime configuration with three tabs (Scheduling / Backend / System) + Save button in tab bar
   - **Scheduling**: Queue config (Max Length, Concurrency) + priority strategy
-  - **Backend**: Unified backend list with add/edit/delete, protocol selection (OpenAI/Anthropic), and enabled/disabled toggle
-  - **System**: Debug mode, Prometheus Metrics, proxy server (HTTP/HTTPS/SOCKS5) configuration
+  - **Backend**: Unified backend list with add/edit/delete, protocol selection (OpenAI/Anthropic), model routing, and enabled/disabled toggle; real-time health status
+  - **System**: Debug mode, Prometheus Metrics, proxy server (HTTP/HTTPS/SOCKS5) configuration; admin password change
 
 ## Queue Behavior
 
@@ -126,6 +134,7 @@ Access `http://localhost:8001/admin` in your browser and log in with the configu
 4. Returns HTTP 429 when the queue is full
 5. Subsequent requests wait while a streaming request is in progress
 6. Returns HTTP 408 on queue wait timeout (configurable via `queue.timeout`; 0 = unlimited)
+7. Queued requests can be cancelled via `DELETE /v1/queue/{request_id}`
 
 ## Rate Limiting & Quotas
 
@@ -143,12 +152,12 @@ uv run pytest tests/
 
 ```
 app/
-├── main.py              # Entry point, app factory, CORS/SessionMiddleware
+├── main.py              # Entry point, app factory, CORS/SessionMiddleware, GZip
 ├── config.py            # Config loading (Pydantic + YAML)
 ├── database.py          # SQLite management (WAL mode, indexes, log cleanup)
 ├── models.py            # Data models (Pydantic + dataclass)
 ├── api/                 # API route handlers (proxy, admin pages, admin REST)
-├── core/                # Core logic (queue, auth, metrics, rate limiter, quota)
+├── core/                # Core logic (queue, auth, metrics, rate limiter, quota, health_checker, password, http_client)
 ├── adapters/            # LLM backend adapters (OpenAI, Anthropic)
 ├── strategies/          # Priority computation strategies
 ├── templates/           # Jinja2 admin page templates

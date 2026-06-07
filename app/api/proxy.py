@@ -2,18 +2,23 @@ import asyncio
 import json as json_module
 import os
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.adapters.anthropic import AnthropicAdapter
 from app.adapters.openai import OpenAIAdapter
 from app.config import BackendConfig, get_config
 from app.core.auth import authenticate_request
+from app.core.health_checker import get_health_checker
+from app.core.http_client import get_client
 from app.core.metrics import (
+    backend_request_duration_seconds,
+    gateway_tokens_total,
     metrics_enabled,
     queue_length,
     request_duration_seconds,
@@ -30,7 +35,8 @@ router = APIRouter()
 
 # Lazy-init strategy + backend round-robin indices
 _strategy = None
-_backend_indices: dict[str, int] = {}  # protocol -> current index
+_backend_indices: dict[str, int] = {}
+_backend_indices_lock = asyncio.Lock()
 
 
 def _ensure_strategy():
@@ -39,14 +45,57 @@ def _ensure_strategy():
         _strategy = create_strategy(get_config().priority.strategy)
 
 
-def _select_backend(protocol: str) -> Optional[BackendConfig]:
-    """Select the next backend that supports the given protocol (round-robin)."""
+def reset_strategy(strategy_name: str | None = None):
+    """Reset or update the priority strategy."""
+    global _strategy
+    if strategy_name is None:
+        _strategy = None
+    else:
+        _strategy = create_strategy(strategy_name)
+
+
+def reset_backend_indices():
+    """Reset round-robin indices (e.g. after backend config changes)."""
+    global _backend_indices
+    _backend_indices.clear()
+
+
+async def _select_backend(protocol: str, model: str = "",
+                           exclude: set[str] | None = None) -> Optional[BackendConfig]:
+    """Select the next backend that supports the given protocol and model.
+
+    Selection priority:
+    1. Exact model match
+    2. Wildcard "*" in models list (or empty models list)
+    3. Protocol match (fallback if no model info)
+
+    Skips disabled and unhealthy backends.
+    """
     config = get_config()
-    eligible = [b for b in config.backends if protocol in b.protocols and b.enabled]
+    hc = get_health_checker()
+    exclude = exclude or set()
+    eligible = []
+    for b in config.backends:
+        if b.base_url in exclude:
+            continue
+        if not b.enabled:
+            continue
+        if protocol not in b.protocols:
+            continue
+        if not hc.is_healthy(b.base_url):
+            continue
+        # Model routing
+        if not model:
+            eligible.append(b)
+        elif not b.models or "*" in b.models:
+            eligible.append(b)
+        elif model in b.models:
+            eligible.append(b)
     if not eligible:
         return None
-    idx = _backend_indices.get(protocol, 0) % len(eligible)
-    _backend_indices[protocol] = idx + 1
+    async with _backend_indices_lock:
+        idx = _backend_indices.get(protocol, 0) % len(eligible)
+        _backend_indices[protocol] = idx + 1
     return eligible[idx]
 
 
@@ -132,15 +181,31 @@ def _record_completion(context: RequestContext):
         request_duration_seconds.labels(endpoint=context.endpoint).observe(total_sec)
         wait_time_seconds.labels(endpoint=context.endpoint).observe(wait_ms / 1000.0)
 
+        # Backend-level metrics
+        if context.backend_name:
+            backend_request_duration_seconds.labels(
+                backend=context.backend_name,
+                protocol=context.protocol,
+            ).observe(proc_ms / 1000.0)
+
+        # Token metrics
+        model_label = context.model or "unknown"
+        if context.prompt_tokens:
+            gateway_tokens_total.labels(model=model_label, type="prompt").inc(context.prompt_tokens)
+        if context.completion_tokens:
+            gateway_tokens_total.labels(model=model_label, type="completion").inc(context.completion_tokens)
+
     # Structured log
     import structlog
     logger = structlog.get_logger()
     logger.info(
         "request.completed",
         request_id=context.request_id,
+        trace_id=context.trace_id,
         user=context.user_name,
         endpoint=context.endpoint,
         model=context.model,
+        backend=context.backend_name,
         priority=context.priority,
         wait_time_ms=wait_ms,
         processing_time_ms=proc_ms,
@@ -193,6 +258,39 @@ async def _save_log(context: RequestContext, wait_ms: int, proc_ms: int):
         )
 
 
+async def _execute_with_retry(protocol: str, model: str, proxy_url: str,
+                               trace_id: str, context: RequestContext):
+    """Execute non-streaming request with retry on 502/503 to different backends."""
+    MaxRetries = 1
+    tried_urls: set[str] = set()
+    last_result = None
+
+    for attempt in range(MaxRetries + 1):
+        backend = await _select_backend(protocol, model=model, exclude=tried_urls)
+        if backend is None:
+            break
+        tried_urls.add(backend.base_url)
+
+        adapter = (
+            OpenAIAdapter(backend, proxy_url=proxy_url, trace_id=trace_id)
+            if protocol == "openai"
+            else AnthropicAdapter(backend, proxy_url=proxy_url, trace_id=trace_id)
+        )
+        context.backend_name = backend.name or backend.base_url
+        result = await adapter.call(context)
+        last_result = result
+
+        if context.response_status not in (502, 503):
+            return result
+
+        import structlog
+        structlog.get_logger().info(
+            "request.retry", attempt=attempt + 1, backend=context.backend_name
+        )
+
+    return last_result
+
+
 async def _process_request(request: Request, endpoint: str) -> Response:
     """Shared request processing for both OpenAI and Anthropic endpoints."""
     _ensure_strategy()
@@ -202,69 +300,72 @@ async def _process_request(request: Request, endpoint: str) -> Response:
     # Determine protocol from endpoint
     protocol = "openai" if endpoint == "/v1/chat/completions" else "anthropic"
 
-    # Select backend via round-robin
-    backend = _select_backend(protocol)
-    if backend is None:
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"No {protocol} backend configured"},
-        )
+    # Authenticate — returns ApiKeyInfo or None (auth disabled)
+    key_info = await authenticate_request(request)
+    user_name = key_info.name if key_info else "anonymous"
 
-    proxy_url = config.proxy.to_url()
-    adapter = (
-        OpenAIAdapter(backend, proxy_url=proxy_url)
-        if protocol == "openai"
-        else AnthropicAdapter(backend, proxy_url=proxy_url)
-    )
-    user_name = await authenticate_request(request)
+    # Body size check
+    content_length = request.headers.get("content-length", "0")
+    if int(content_length) > config.request.max_body_size:
+        return JSONResponse(
+            status_code=413,
+            content={"error": f"Request body too large (max {config.request.max_body_size} bytes)"},
+        )
 
     # Parse body
     body = await request.json()
     model = body.get("model", "")
     is_stream = body.get("stream", False)
 
-    # Compute priority
-    priority = await _strategy.get_priority(request, user_name)
+    # Compute priority — from key_info or default
+    if key_info:
+        priority = key_info.priority
+    else:
+        priority = config.priority.default_priority
 
-    # Rate limit check
-    from app.database import get_db as get_db_limiter
-    db = await get_db_limiter()
-    cursor = await db.execute(
-        "SELECT COALESCE(rate_limit, 0) as rate_limit, "
-        "COALESCE(token_quota_daily, 0) as token_quota_daily, "
-        "COALESCE(token_quota_monthly, 0) as token_quota_monthly "
-        "FROM api_keys WHERE name = ? AND enabled = 1",
-        (user_name,),
-    )
-    key_row = await cursor.fetchone()
-
-    if key_row and key_row["rate_limit"] > 0:
+    # Rate limit check — use data from auth
+    if key_info and key_info.rate_limit > 0:
         from app.core.rate_limiter import get_rate_limiter
         limiter = get_rate_limiter()
-        if not limiter.check(user_name, key_row["rate_limit"]):
+        if not limiter.check(user_name, key_info.rate_limit):
             import structlog
             structlog.get_logger().warning(
-                "rate_limit.exceeded", user=user_name, rate_limit=key_row["rate_limit"]
+                "rate_limit.exceeded", user=user_name, rate_limit=key_info.rate_limit
             )
             return JSONResponse(
                 status_code=429,
-                content={"error": f"Rate limit exceeded ({key_row['rate_limit']} req/min)"},
+                content={"error": f"Rate limit exceeded ({key_info.rate_limit} req/min)"},
             )
 
-    # Token quota check
-    if key_row and (key_row["token_quota_daily"] > 0 or key_row["token_quota_monthly"] > 0):
+    # Token quota check — use data from auth
+    if key_info and (key_info.token_quota_daily > 0 or key_info.token_quota_monthly > 0):
         from app.core.quota_checker import check_quota
         quota_error = await check_quota(
-            user_name, key_row["token_quota_daily"], key_row["token_quota_monthly"]
+            user_name, key_info.token_quota_daily, key_info.token_quota_monthly
         )
         if quota_error:
             import structlog
             structlog.get_logger().warning("quota.exceeded", user=user_name, detail=quota_error)
             return JSONResponse(status_code=429, content={"error": quota_error})
 
+    # Select backend via round-robin (with model routing and health filter)
+    backend = await _select_backend(protocol, model=model)
+    if backend is None:
+        return JSONResponse(
+            status_code=502,
+            content={"error": f"No healthy {protocol} backend available"},
+        )
+
+    # Trace ID — accept from client or generate
+    trace_id = request.headers.get("x-trace-id") or ""
+    if not trace_id:
+        trace_id = uuid.uuid4().hex
+
+    proxy_url = config.proxy.to_url()
 
     # Build context
     context = RequestContext(
+        trace_id=trace_id,
         priority=priority,
         user_name=user_name,
         body=body,
@@ -272,6 +373,8 @@ async def _process_request(request: Request, endpoint: str) -> Response:
         client_ip=request.client.host if request.client else "unknown",
         timestamp=time.time(),
         model=model,
+        backend_name=backend.name or backend.base_url,
+        protocol=protocol,
         streamed=is_stream,
     )
 
@@ -315,10 +418,15 @@ async def _process_request(request: Request, endpoint: str) -> Response:
 
     # Stream or non-stream
     if is_stream:
+        adapter = (
+            OpenAIAdapter(backend, proxy_url=proxy_url, trace_id=trace_id)
+            if protocol == "openai"
+            else AnthropicAdapter(backend, proxy_url=proxy_url, trace_id=trace_id)
+        )
         generator = _stream_wrapper(adapter.stream(context), context.request_id, context)
         return StreamingResponse(generator, media_type="text/event-stream")
     else:
-        result = await adapter.call(context)
+        result = await _execute_with_retry(protocol, model, proxy_url, trace_id, context)
         await queue.signal_done(context.request_id)
         _record_completion(context)
         if _debug_enabled():
@@ -328,7 +436,6 @@ async def _process_request(request: Request, endpoint: str) -> Response:
                              context)
         if isinstance(result, dict):
             return JSONResponse(content=result)
-        # bytes (error response from backend)
         return Response(content=result, media_type="application/json")
 
 
@@ -346,7 +453,6 @@ async def _models_list(request: Request) -> Response:
 
     # Forward client headers as-is, but override Host and add backend auth
     headers = dict(request.headers)
-    # Remove hop-by-hop headers
     for key in ("host", "connection", "content-length", "content-encoding",
                 "transfer-encoding", "x-forwarded-for", "x-forwarded-proto"):
         headers.pop(key, None)
@@ -358,21 +464,32 @@ async def _models_list(request: Request) -> Response:
     logger = structlog.get_logger()
     proxy_url = config.proxy.to_url() or None
     try:
-        async with httpx.AsyncClient(timeout=backend.timeout,
-                                     trust_env=False,
-                                     proxy=proxy_url) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code != 200:
-                logger.warning("backend.models_error", status=resp.status_code,
-                               body=resp.text[:500])
-            return Response(content=resp.content, status_code=resp.status_code,
-                            media_type="application/json")
+        client = await get_client(timeout=backend.timeout, proxy_url=proxy_url)
+        resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            logger.warning("backend.models_error", status=resp.status_code,
+                           body=resp.text[:500])
+        return Response(content=resp.content, status_code=resp.status_code,
+                        media_type="application/json")
     except (httpx.ConnectError, OSError) as e:
         logger.error("backend.models_unreachable", error=str(e))
         return JSONResponse(status_code=502, content={"error": "Backend unreachable"})
     except httpx.TimeoutException:
         logger.error("backend.models_timeout")
         return JSONResponse(status_code=504, content={"error": "Backend timeout"})
+
+
+@router.delete("/v1/queue/{request_id}")
+async def cancel_request(request_id: str, request: Request):
+    """Cancel a queued request. Requires authentication."""
+    key_info = await authenticate_request(request)
+    user_name = key_info.name if key_info else "anonymous"
+
+    q = get_queue()
+    cancelled = await q.cancel(request_id, user_name)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="Request not found in queue")
+    return {"ok": True, "request_id": request_id}
 
 
 @router.get("/v1/models")

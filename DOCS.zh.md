@@ -24,6 +24,9 @@
    - [Token 配额检查器](#token-配额检查器)
    - [适配器](#适配器)
    - [优先级策略](#优先级策略)
+   - [后端健康检查与故障转移](#后端健康检查与故障转移)
+   - [请求取消 API](#请求取消-api)
+   - [模型级别路由](#模型级别路由)
 9. [代理支持](#代理支持)
 10. [调试模式](#调试模式)
 11. [日志与指标](#日志与指标)
@@ -98,16 +101,19 @@ app/
 ├── models.py                # Pydantic 数据模型 + dataclass 请求上下文
 │
 ├── api/
-│   ├── proxy.py             # 代理端点 (/v1/chat/completions, /v1/messages, /v1/models, /v1/queue)
-│   ├── admin_api.py         # 管理 REST API (keys, stats, logs, config)
-│   └── admin_pages.py       # 管理页面路由 (login, logout, dashboard 等)
+│   ├── proxy.py             # 代理端点 (/v1/chat/completions, /v1/messages, /v1/models, /v1/queue)、请求取消
+│   ├── admin_api.py         # 管理 REST API (keys, stats, logs, config, health, password)
+│   └── admin_pages.py       # 管理页面路由 (带登录锁定的 login、logout、dashboard 等)
 │
 ├── core/
-│   ├── queue.py             # 异步优先级队列 (heapq + asyncio.Condition)
+│   ├── queue.py             # 异步优先级队列 (heapq + asyncio.Condition)，支持取消
 │   ├── auth.py              # API Key 认证 + 管理员会话管理
 │   ├── metrics.py           # Prometheus 指标定义
 │   ├── rate_limiter.py      # 内存滑动窗口速率限制器
-│   └── quota_checker.py     # 基于 SQL 的日/月 Token 配额检查器
+│   ├── quota_checker.py     # 基于 SQL 的日/月 Token 配额检查器
+│   ├── health_checker.py    # 后端健康探测与自动故障转移
+│   ├── password.py          # bcrypt 密码哈希与验证
+│   └── http_client.py       # 共享 httpx AsyncClient，连接池复用
 │
 ├── adapters/
 │   ├── base.py              # 抽象适配器基类 (含代理支持)
@@ -119,16 +125,18 @@ app/
 │   ├── api_key_based.py     # 基于 API Key 的优先级策略
 │   └── factory.py           # 策略工厂
 │
-├── templates/               # Jinja2 HTML 模板
-│   ├── base.html            # 布局 (侧边栏、导航、401 拦截器)
-│   ├── login.html           # 登录页面
+├── templates/               # Jinja2 HTML 模板（支持暗色模式、响应式布局）
+│   ├── base.html            # 布局 (侧边栏、导航、主题切换、汉堡菜单、401 拦截器)
+│   ├── login.html           # 登录页面（带锁定错误显示）
 │   ├── dashboard.html       # Dashboard (统计、图表、按 Key 明细)
 │   ├── api_keys.html        # API Key 管理页面
-│   ├── logs.html            # 请求日志页面
+│   ├── logs.html            # 请求日志页面（model/status/date 筛选）
 │   └── management.html      # 运行时配置 (Scheduling/Backend/System 三个 Tab)
 │
 ├── static/
-│   ├── style.css            # 科技感主题样式
+│   ├── style.css            # 浅色科技风主题，支持暗色模式与响应式断点
+│   └── chart.umd.min.js     # Chart.js v4 (本地部署)
+││   ├── style.css            # 科技感主题样式
 │   └── chart.umd.min.js     # Chart.js v4 (本地部署)
 │
 data/                        # 运行时数据 (自动创建)
@@ -177,6 +185,7 @@ curl http://localhost:8001/v1/chat/completions \
 - `429 Too Many Requests` — 队列满 / 速率超限 / 配额超限
 - `408 Request Timeout` — 队列等待超时
 - `502 Bad Gateway` — 未配置后端 / 后端不可达
+- `413 Payload Too Large` — 请求体超过 `request.max_body_size` 限制
 - `504 Gateway Timeout` — 后端请求超时
 
 ---
@@ -240,6 +249,42 @@ curl http://localhost:8001/v1/queue
 
 ---
 
+
+---
+
+#### `DELETE /v1/queue/{request_id}` — 取消队列中的请求
+
+取消当前正在队列中等待的请求。**需要认证。**
+
+**认证方式：** 需要（除非 `auth.enabled = false`）
+
+**请求头：**
+- `Authorization: Bearer <api-key>` — API Key 认证
+
+**路径参数：**
+- `request_id` (string) — 要取消的请求 ID
+
+**示例：**
+```bash
+curl -X DELETE http://localhost:8001/v1/queue/a1b2c3d4e5f6... \
+  -H "Authorization: Bearer sk-your-api-key"
+```
+
+**响应：**
+```json
+{
+    "ok": true,
+    "request_id": "a1b2c3d4e5f6..."
+}
+```
+
+**状态码：**
+- `200 OK` — 已取消
+- `401 Unauthorized` — 缺少或无效的 API Key
+- `404 Not Found` — 请求不在队列中（已处理或不存在）
+
+---
+
 #### `GET /v1/models` — 查看模型列表
 
 将请求转发到第一个可用的 OpenAI 后端的 `/models` 端点。**需要认证。**
@@ -281,6 +326,39 @@ curl http://localhost:8001/health
 
 ---
 
+
+---
+
+#### `GET /health/ready` — 就绪检查
+
+Kubernetes 风格的就绪探针。检查数据库连接和至少有一个启用的后端处于健康状态。**无需认证。**
+
+**示例：**
+```bash
+curl http://localhost:8001/health/ready
+```
+
+**响应（就绪）：**
+```json
+{
+    "status": "ready"
+}
+```
+
+**响应（未就绪）：**
+```json
+{
+    "status": "not ready",
+    "reason": "no healthy backend"
+}
+```
+
+**状态码：**
+- `200 OK` — 就绪
+- `503 Service Unavailable` — 未就绪
+
+---
+
 #### `GET /metrics` — Prometheus 指标
 
 返回 Prometheus 格式的指标数据。仅在 `metrics.enabled = true` 时可用。**无需认证。**
@@ -291,6 +369,8 @@ curl http://localhost:8001/health
 - `gateway_requests_processing` (Gauge) — 当前处理状态 (0 或 1)
 - `gateway_request_duration_seconds` (Histogram) — 端到端请求耗时（秒）
 - `gateway_wait_time_seconds` (Histogram) — 队列等待耗时（秒）
+- `gateway_backend_request_duration_seconds` (Histogram) — 按后端名称和协议统计的后端请求耗时（秒）
+- `gateway_tokens_total` (Counter) — 按模型和类型（prompt/completion）统计的 Token 总数
 
 **示例：**
 ```bash
@@ -715,7 +795,7 @@ class AuthConfig:
 class AdminConfig:
     enabled: bool = True
     username: str = "admin"
-    password: str = "admin123"
+    password: str = "admin123"                 # 首次启动后自动 bcrypt 哈希
     secret_key: str = "llm-scheduler-default-secret"  # Session 加密密钥
     session_https_only: bool = False  # Secure cookie 标志
 
@@ -727,6 +807,9 @@ class QueueConfig:
     concurrency: int = 1              # 并发处理数
     timeout: int = 300                # 队列等待超时（秒），0=无限
 
+class RequestConfig:
+    max_body_size: int = 10485760   # 请求体最大字节数（默认 10 MB）
+
 class PriorityConfig:
     strategy: str = "api_key"         # 优先级策略名称
     default_priority: int = 100       # 匿名/未认证请求的默认优先级
@@ -736,6 +819,7 @@ class BackendConfig:
     base_url: str = ""                # 后端 API 基础 URL
     api_key: str = ""                 # 后端认证密钥
     timeout: int = 300                # 后端请求超时
+    models: list[str] = []           # 空或 ["*"] = 匹配全部；指定模型名 = 仅路由这些模型
     protocols: list[str] = ["openai"] # ["openai"] 或 ["anthropic"] 或两者
     enabled: bool = True
 
@@ -794,6 +878,9 @@ queue:
   concurrency: 1
   timeout: 300
 
+request:
+  max_body_size: 10485760
+
 logging:
   level: "INFO"
   format: "json"
@@ -842,11 +929,17 @@ proxy:
 
 管理页面和 API 使用基于 Session/Cookie 的认证：
 
-1. `POST /admin/login` — 验证凭据与 `admin.username`/`admin.password` 匹配
+1. `POST /admin/login` — 验证凭据与 `admin.username`/`admin.password` 匹配（支持 bcrypt 哈希和旧版明文）
 2. 成功后，设置 `session["admin"] = True` 和 `session["username"] = <username>`
 3. Session 中间件使用 `secret_key` 进行加密，`max_age=86400`（24 小时）
 4. `https_only` 标志控制 `Secure` cookie 属性
 5. `GET /admin/logout` 清除 session
+
+**登录锁定：** 同一 IP 地址登录失败 5 次后，该 IP 将被锁定 300 秒（5 分钟）。锁定信息存储在内存中，服务器重启后重置。
+
+**密码哈希：** 管理员密码以 bcrypt 哈希存储。首次启动时，`config.yaml` 中的明文密码会自动哈希并写回配置文件。可在工作目录放置 `reset_admin_password` 文件，包含新密码明文——下次启动时将被读取、哈希并删除。
+
+**密码重置（API）：** 使用 `PUT /admin/api/admin/password` 在运行时修改管理员密码。新密码被 bcrypt 哈希并持久化到配置文件。
 
 ---
 
@@ -994,6 +1087,53 @@ proxy:
 
 ---
 
+
+---
+
+### 后端健康检查与故障转移
+
+**文件：** `app/core/health_checker.py`
+
+健康检查器定期探测所有已启用的后端，并自动标记不健康的后端，使其在路由时被跳过。
+
+**行为：**
+- 向每个已启用后端发送 `GET {base_url}/health` 探测请求
+- 连续失败 3 次后，后端被标记为不健康，排除在请求路由之外
+- 后端恢复后（探测成功），立即重新启用
+- 健康状态通过 `GET /admin/api/backends/health` 和 `GET /health/ready` 暴露
+
+### 请求取消
+
+**端点：** `DELETE /v1/queue/{request_id}`（`app/api/proxy.py`）
+
+客户端可以取消仍在队列中等待（尚未处理）的请求。
+
+**队列取消方法**（`app/core/queue.py`）：
+- `cancel(request_id, user_name)` — 扫描堆查找匹配请求并移除
+- 只有请求所有者（匹配 `user_name`）才能取消自己的请求
+
+### 模型级别路由
+
+后端可通过 `BackendConfig` 中的 `models` 字段配置为仅服务特定模型。
+
+```yaml
+backends:
+  - name: "openai-gpt4"
+    base_url: "https://api.openai.com"
+    protocols: ["openai"]
+    models: ["gpt-4", "gpt-4-turbo"]  # 仅路由这些模型
+  - name: "openai-all"
+    base_url: "https://api.openai.com"
+    protocols: ["openai"]
+    models: []  # 空 = 匹配所有模型（默认）
+```
+
+**匹配优先级：**
+1. **精确模型匹配** — 请求的模型在后端的 `models` 列表中
+2. **通配符** — `models` 包含 `"*"` 或为空，匹配所有模型
+3. **协议匹配回退** — 无模型信息时，回退到仅按协议匹配
+
+不健康的后端无论模型是否匹配都会被排除。
 ## 代理支持
 
 网关支持通过 HTTP、HTTPS 或 SOCKS5 代理服务器路由后端 LLM 请求。
@@ -1044,7 +1184,8 @@ data/debug/{YYYYMMDDHHMMSSmmm}_{request_id[:12]}_{model}_response.json
 - **文本格式**（`logging.format: "text"`）：人类可读的彩色控制台输出
 
 **日志字段（请求生命周期）：**
-- `request_id`、`user`、`endpoint`、`model`、`priority`
+- `trace_id` — 客户端提供或自动生成的追踪 ID（绑定到请求的所有日志条目）
+- `request_id`、`user`、`endpoint`、`model`、`priority`、`backend`
 - `wait_time_ms`、`processing_time_ms`
 - `status_code`、`streamed`、`prompt_tokens`、`completion_tokens`
 - `error`、`client_ip`
@@ -1065,6 +1206,8 @@ data/debug/{YYYYMMDDHHMMSSmmm}_{request_id[:12]}_{model}_response.json
 | `gateway_requests_processing` | Gauge | — | 当前处理状态 |
 | `gateway_request_duration_seconds` | Histogram | `endpoint` | 端到端耗时 (buckets: 0.1–120s) |
 | `gateway_wait_time_seconds` | Histogram | `endpoint` | 队列等待耗时 (buckets: 0.01–30s) |
+| `gateway_backend_request_duration_seconds` | Histogram | `backend`, `protocol` | 后端请求耗时 (buckets: 0.1–120s) |
+| `gateway_tokens_total` | Counter | `model`, `type` | 处理的 Token 总数（type: `prompt` 或 `completion`） |
 
 ---
 

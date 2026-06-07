@@ -1,15 +1,15 @@
 """"In-memory sliding window rate limiter for API keys."""
 
 import time
-from collections import defaultdict
-from typing import Dict, List
+from collections import defaultdict, deque
+from typing import Dict
 
 
 class RateLimiter:
     """Memory-based sliding window rate limiter (requests per minute per API key)."""
 
     def __init__(self):
-        self._windows: Dict[str, List[float]] = defaultdict(list)
+        self._windows: Dict[str, deque[float]] = defaultdict(deque)
 
     def check(self, user_name: str, limit_per_minute: int) -> bool:
         """Return True if the request is allowed, False if rate limited.
@@ -28,7 +28,7 @@ class RateLimiter:
 
         # Remove expired entries
         while window and window[0] < cutoff:
-            window.pop(0)
+            window.popleft()
 
         if len(window) >= limit_per_minute:
             return False

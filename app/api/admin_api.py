@@ -1,5 +1,7 @@
+import asyncio
 import secrets
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import yaml
@@ -7,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.config import BackendConfig, get_config
+from app.core.password import hash_password, verify_password
 from app.core.queue import get_queue
 from app.database import get_db
 from app.models import (
@@ -313,7 +316,9 @@ async def get_stats_timeseries(request: Request, _=Depends(_admin_auth),
 @router.get("/logs")
 async def get_logs(request: Request, _=Depends(_admin_auth),
                    page: int = 1, per_page: int = 50,
-                   endpoint: str = None, user: str = None):
+                   endpoint: str = None, user: str = None,
+                   model: str = None, status: str = None,
+                   date_start: str = None, date_end: str = None):
     db = await get_db()
     conditions = []
     params = []
@@ -323,6 +328,26 @@ async def get_logs(request: Request, _=Depends(_admin_auth),
     if user:
         conditions.append("user_name = ?")
         params.append(user)
+    if model:
+        conditions.append("model LIKE ?")
+        params.append(f"%{model}%")
+    if status:
+        if status == "success":
+            conditions.append("error IS NULL")
+        elif status == "error":
+            conditions.append("error IS NOT NULL")
+        elif status == "2xx":
+            conditions.append("status_code >= 200 AND status_code < 300")
+        elif status == "4xx":
+            conditions.append("status_code >= 400 AND status_code < 500")
+        elif status == "5xx":
+            conditions.append("status_code >= 500 AND status_code < 600")
+    if date_start:
+        conditions.append("created_at >= ?")
+        params.append(date_start)
+    if date_end:
+        conditions.append("created_at <= ?")
+        params.append(date_end)
 
     where = ""
     if conditions:
@@ -461,15 +486,16 @@ async def update_config_admin(body: MutableConfig, request: Request,
 
     # Queue
     if body.queue:
+        q = get_queue()
         if body.queue.max_length is not None:
             cfg.queue.max_length = body.queue.max_length
-            q = get_queue()
-            q._max_size = body.queue.max_length
+            q.update_max_size(body.queue.max_length)
             changed.append("queue.max_length")
         if body.queue.concurrency is not None:
             cfg.queue.concurrency = body.queue.concurrency
-            q = get_queue()
-            q._max_concurrency = body.queue.concurrency
+            # update_concurrency is async; fire-and-forget in the background
+            import asyncio
+            asyncio.ensure_future(q.update_concurrency(body.queue.concurrency))
             changed.append("queue.concurrency")
         if body.queue.timeout is not None:
             cfg.queue.timeout = body.queue.timeout
@@ -485,15 +511,14 @@ async def update_config_admin(body: MutableConfig, request: Request,
             changed.append("priority.default_priority")
         # Recreate strategy if strategy name changed
         if body.priority.strategy is not None:
-            from app.strategies.factory import create_strategy
-            import app.api.proxy as proxy_module
-            proxy_module._strategy = create_strategy(cfg.priority.strategy)
+            from app.api.proxy import reset_strategy
+            reset_strategy(cfg.priority.strategy)
 
     # Backends — full replacement
     if body.backends is not None:
         cfg.backends = body.backends
-        import app.api.proxy as proxy_module
-        proxy_module._backend_indices.clear()
+        from app.api.proxy import reset_backend_indices
+        reset_backend_indices()
         changed.append("backends")
 
     # Debug
@@ -539,4 +564,62 @@ async def update_config_admin(body: MutableConfig, request: Request,
     logger.info("config.updated", changes=changed)
 
     return {"ok": True, "changes": changed}
+
+
+# ── Backend Health ──────────────────────────────────────────────────
+
+@router.get("/backends/health")
+async def get_backends_health(request: Request, _=Depends(_admin_auth)):
+    """Return health status for all configured backends."""
+    from app.core.health_checker import get_health_checker
+    hc = get_health_checker()
+    return hc.get_all_health()
+
+
+# ── Admin Password ──────────────────────────────────────────────────
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.put("/admin/password")
+async def change_admin_password(body: PasswordChange, request: Request,
+                                 _=Depends(_admin_auth)):
+    """Change the admin password."""
+    cfg = get_config()
+
+    # Verify current password
+    try:
+        ok = verify_password(body.old_password, cfg.admin.password)
+    except Exception:
+        ok = (body.old_password == cfg.admin.password)
+    if not ok:
+        raise HTTPException(status_code=403, detail="Current password is incorrect")
+
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+
+    hashed = hash_password(body.new_password)
+    cfg.admin.password = hashed
+
+    # Write back to config file
+    config_path = getattr(cfg, "_config_path", None)
+    if config_path:
+        try:
+            p = Path(config_path)
+            if p.exists():
+                with open(p, "r") as f:
+                    data = yaml.safe_load(f) or {}
+                data.setdefault("admin", {})["password"] = hashed
+                with open(p, "w") as f:
+                    yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
+        except Exception as e:
+            import structlog
+            structlog.get_logger().error("password.write_failed", error=str(e))
+            raise HTTPException(status_code=500, detail="Failed to persist password change")
+
+    import structlog
+    structlog.get_logger().info("admin.password_changed")
+    return {"ok": True}
 

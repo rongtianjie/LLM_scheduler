@@ -7,6 +7,21 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+# ── Internal key info (returned by auth) ────────────────────────────
+
+from dataclasses import dataclass as dc_dataclass
+
+
+@dc_dataclass
+class ApiKeyInfo:
+    name: str
+    enabled: bool = True
+    priority: int = 100
+    rate_limit: int = 0
+    token_quota_daily: int = 0
+    token_quota_monthly: int = 0
+
+
 # ── Pydantic schemas for Admin API ──────────────────────────────────
 
 class ApiKeyCreate(BaseModel):
@@ -52,6 +67,7 @@ class QueueStatus(BaseModel):
 @dataclass
 class RequestContext:
     request_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    trace_id: str = ""
     priority: int = 100
     user_name: str = "anonymous"
     body: dict = field(default_factory=dict)
@@ -59,6 +75,8 @@ class RequestContext:
     client_ip: str = ""
     timestamp: float = 0.0
     model: str = ""
+    backend_name: str = ""
+    protocol: str = ""
     enqueue_time: Optional[datetime] = None
     dequeue_time: Optional[datetime] = None
     complete_time: Optional[datetime] = None

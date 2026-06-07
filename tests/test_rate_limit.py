@@ -1,4 +1,5 @@
 import time
+from collections import deque
 
 import pytest
 
@@ -46,7 +47,7 @@ class TestRateLimiter:
     def test_sliding_window_expiry(self):
         limiter = RateLimiter()
         # Inject old timestamps to simulate window sliding
-        limiter._windows["user"] = [time.time() - 61]  # 61s ago → expired
+        limiter._windows["user"] = deque([time.time() - 61])  # 61s ago → expired
         assert limiter.check("user", 1) is True
         # The old expired entry should be cleaned
         assert len(limiter._windows["user"]) == 1  # only the new one
@@ -54,8 +55,8 @@ class TestRateLimiter:
     def test_periodic_cleanup(self):
         limiter = RateLimiter()
         # Add stale windows
-        limiter._windows["stale1"] = [time.time() - 120]
-        limiter._windows["stale2"] = [time.time() - 300]
+        limiter._windows["stale1"] = deque([time.time() - 120])
+        limiter._windows["stale2"] = deque([time.time() - 300])
         # Trigger cleanup by setting _last_cleanup far in the past
         limiter._last_cleanup = 0
         assert limiter.check("fresh", 10) is True

@@ -1,20 +1,44 @@
 import logging
+import yaml
+from pathlib import Path
+
 import structlog
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.admin_api import router as admin_api_router
 from app.api.admin_pages import router as admin_pages_router
 from app.api.proxy import router as proxy_router
 from app.config import init_config, get_config
+from app.core.health_checker import init_health_checker, get_health_checker
+from app.core.http_client import init_client, close_client
 from app.core.metrics import get_metrics, metrics_enabled
 from app.core.queue import init_queue
 from app.database import close_db, init_db
+
+
+def _write_config_password(cfg, hashed: str):
+    """Write the hashed password back to the primary config file."""
+    config_path = getattr(cfg, "_config_path", None)
+    if not config_path:
+        return
+    p = Path(config_path)
+    if not p.exists():
+        return
+    try:
+        with open(p, "r") as f:
+            data = yaml.safe_load(f) or {}
+        data.setdefault("admin", {})["password"] = hashed
+        with open(p, "w") as f:
+            yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
+    except Exception as e:
+        structlog.get_logger().warning("config.write_failed", error=str(e))
 
 
 def create_app() -> FastAPI:
@@ -51,6 +75,8 @@ def create_app() -> FastAPI:
         cfg = get_config()
         await init_db(cfg)
         init_queue(cfg.queue.max_length, cfg.queue.concurrency)
+        init_health_checker()
+        await init_client(cfg.proxy.to_url() or "")
         # Suppress uvicorn access logs (set after uvicorn's own log config)
         logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
         logger = structlog.get_logger()
@@ -75,9 +101,29 @@ def create_app() -> FastAPI:
         else:
             logger.info("AUTH is DISABLED — all requests pass through without authentication")
 
-        # Admin password security check
-        if cfg.admin.enabled and len(cfg.admin.password) < 6:
-            logger.warning("ADMIN_PASSWORD_WEAK — password is too short (< 6 chars)")
+        # Admin password: auto-hash plaintext on first startup
+        if cfg.admin.enabled:
+            from pathlib import Path
+            from app.core.password import hash_password, verify_password
+
+            # Check for password reset file
+            reset_file = Path("reset_admin_password")
+            if reset_file.exists():
+                new_plain = reset_file.read_text().strip()
+                reset_file.unlink()
+                hashed = hash_password(new_plain)
+                cfg.admin.password = hashed
+                _write_config_password(cfg, hashed)
+                logger.info("ADMIN_PASSWORD_RESET — password updated from reset file")
+            elif len(cfg.admin.password) < 60:  # bcrypt hashes are ~60 chars, plaintext is short
+                # Looks like a plaintext password — hash it and write back
+                hashed = hash_password(cfg.admin.password)
+                cfg.admin.password = hashed
+                _write_config_password(cfg, hashed)
+                logger.info("ADMIN_PASSWORD_HASHED — plaintext password auto-hashed")
+
+            if len(cfg.admin.password) < 6:
+                logger.warning("ADMIN_PASSWORD_WEAK — password is too short (< 6 chars)")
 
         # Log cleanup on startup
         from app.database import cleanup_old_logs
@@ -85,8 +131,14 @@ def create_app() -> FastAPI:
             retention_days=cfg.log_retention.retention_days,
             max_records=cfg.log_retention.max_records,
         )
+        # Start health checker background task
+        hc = get_health_checker()
+        await hc.start(cfg.backends, proxy_url=cfg.proxy.to_url() or "")
+
         yield
         # Shutdown
+        await hc.stop()
+        await close_client()
         await close_db()
         logger.info("gateway.shutdown")
 
@@ -116,6 +168,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # GZip compression for responses > 1000 bytes
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+
     # ── Routes ────────────────────────────────────────────────────
 
     # Admin pages
@@ -131,6 +186,33 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health():
         return {"status": "ok"}
+
+    # Readiness check
+    @app.get("/health/ready")
+    async def health_ready():
+        """Readiness probe: DB + at least one backend must be reachable."""
+        import structlog as _sl
+        _log = _sl.get_logger()
+        try:
+            from app.database import get_db
+            db = await get_db()
+            await db.execute("SELECT 1")
+        except Exception as e:
+            _log.warning("health.ready.db_fail", error=str(e))
+            return JSONResponse(status_code=503, content={"status": "not ready", "reason": "database"})
+        try:
+            from app.core.health_checker import get_health_checker
+            hc = get_health_checker()
+            cfg = get_config()
+            enabled_backends = [b for b in cfg.backends if b.enabled]
+            if enabled_backends:
+                any_healthy = any(hc.is_healthy(b.base_url) for b in enabled_backends)
+                if not any_healthy:
+                    _log.warning("health.ready.no_backend")
+                    return JSONResponse(status_code=503, content={"status": "not ready", "reason": "no healthy backend"})
+        except Exception as e:
+            _log.warning("health.ready.hc_fail", error=str(e))
+        return {"status": "ready"}
 
     # Prometheus metrics
     if metrics_enabled():

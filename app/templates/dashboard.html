@@ -18,7 +18,7 @@
         <div class="stat-value" id="queue-length">-</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Processing</div>
+        <div class="stat-label">Processing / Max</div>
         <div class="stat-value" id="queue-processing">-</div>
     </div>
     <div class="stat-card">
@@ -231,7 +231,7 @@ async function refreshDashboard() {
         const stats = await statsRes.json();
 
         document.getElementById('queue-length').textContent = queue.current_waiting;
-        document.getElementById('queue-processing').textContent = queue.current_processing ? `Yes (${queue.processing_count}/${queue.max_concurrency})` : 'No';
+        document.getElementById('queue-processing').textContent = `${queue.processing_count}/${queue.max_concurrency}`;
         document.getElementById('queue-max').textContent = queue.max_length;
         document.getElementById('queue-full').textContent = queue.queue_full ? 'Yes' : 'No';
         document.getElementById('total-requests').textContent = stats.total_requests;

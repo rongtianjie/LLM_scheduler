@@ -150,3 +150,100 @@ async def test_multi_concurrency():
     await q.signal_done("req-3")
     assert not q.is_processing
     assert q.processing_count == 0
+
+
+class TestQueueCancel:
+    @pytest.mark.asyncio
+    async def test_cancel_removes_from_queue(self):
+        q = PriorityQueue(max_size=5)
+        await q.enqueue(make_context("r1"))
+        await q.enqueue(make_context("r2"))
+        cancelled = await q.cancel("r1", "anonymous")
+        assert cancelled is True
+        assert q.waiting_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cancel_not_found_returns_false(self):
+        q = PriorityQueue(max_size=5)
+        await q.enqueue(make_context("r1"))
+        assert not await q.cancel("nope", "anonymous")
+
+    @pytest.mark.asyncio
+    async def test_cancel_wrong_user_returns_false(self):
+        ctx = make_context("r1")
+        ctx.user_name = "alice"
+        q = PriorityQueue(max_size=5)
+        await q.enqueue(ctx)
+        assert not await q.cancel("r1", "bob")
+
+
+class TestQueueMutation:
+    def test_update_max_size(self):
+        q = PriorityQueue(max_size=3)
+        assert q.max_size == 3
+        q.update_max_size(10)
+        assert q.max_size == 10
+
+    @pytest.mark.asyncio
+    async def test_update_concurrency(self):
+        q = PriorityQueue(max_size=10, max_concurrency=1)
+        await q.enqueue(make_context("a"))
+        await q.enqueue(make_context("b"))
+        await q.wait_for_turn("a")
+        assert q.processing_count == 1
+        await q.update_concurrency(2)
+        assert q.max_concurrency == 2
+        await q.wait_for_turn("b")
+        assert q.processing_count == 2
+        await q.signal_done("a")
+        await q.signal_done("b")
+
+
+class TestQueueCancel:
+    @pytest.mark.asyncio
+    async def test_cancel_removes_from_queue(self):
+        q = PriorityQueue(max_size=5)
+        await q.enqueue(make_context("r1"))
+        await q.enqueue(make_context("r2"))
+        cancelled = await q.cancel("r1", "anonymous")
+        assert cancelled is True
+        assert q.waiting_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cancel_not_found_returns_false(self):
+        q = PriorityQueue(max_size=5)
+        await q.enqueue(make_context("r1"))
+        assert not await q.cancel("nope", "anonymous")
+
+    @pytest.mark.asyncio
+    async def test_cancel_wrong_user_returns_false(self):
+        ctx = make_context("r1")
+        ctx.user_name = "alice"
+        q = PriorityQueue(max_size=5)
+        await q.enqueue(ctx)
+        assert not await q.cancel("r1", "bob")
+
+
+class TestQueueMutation:
+    def test_update_max_size(self):
+        q = PriorityQueue(max_size=3)
+        assert q.max_size == 3
+        q.update_max_size(10)
+        assert q.max_size == 10
+
+    @pytest.mark.asyncio
+    async def test_update_concurrency(self):
+        q = PriorityQueue(max_size=10, max_concurrency=1)
+        await q.enqueue(make_context("a"))
+        await q.enqueue(make_context("b"))
+        # Process a
+        await q.wait_for_turn("a")
+        assert q.processing_count == 1
+        # Increase concurrency to 2
+        await q.update_concurrency(2)
+        assert q.max_concurrency == 2
+        # Now b should be able to process too
+        await q.wait_for_turn("b")
+        assert q.processing_count == 2
+        await q.signal_done("a")
+        await q.signal_done("b")

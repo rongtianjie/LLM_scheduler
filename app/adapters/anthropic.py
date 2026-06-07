@@ -39,8 +39,8 @@ class AnthropicAdapter(BaseAdapter):
 
     PATH = "/messages"
 
-    def __init__(self, backend_config: BackendConfig, proxy_url: str = ""):
-        super().__init__(backend_config, proxy_url)
+    def __init__(self, backend_config: BackendConfig, proxy_url: str = "", trace_id: str = ""):
+        super().__init__(backend_config, proxy_url, trace_id)
 
     async def _headers(self) -> dict:
         headers = {
@@ -49,6 +49,8 @@ class AnthropicAdapter(BaseAdapter):
         }
         if self.config.api_key:
             headers["x-api-key"] = self.config.api_key
+        if self.trace_id:
+            headers["x-trace-id"] = self.trace_id
         return headers
 
     async def stream(self, context: RequestContext) -> AsyncGenerator[bytes, None]:

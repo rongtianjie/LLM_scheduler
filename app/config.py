@@ -44,6 +44,7 @@ class BackendConfig(BaseModel):
     api_key: str = ""
     timeout: int = 300  # seconds
     protocols: list[str] = ["openai"]
+    models: list[str] = []  # empty or ["*"] means match all
     enabled: bool = True
 
 
@@ -82,6 +83,10 @@ class LogRetentionConfig(BaseModel):
     max_records: int = 100_000
 
 
+class RequestConfig(BaseModel):
+    max_body_size: int = 10 * 1024 * 1024  # 10 MB default
+
+
 class CorsConfig(BaseModel):
     origins: list[str] = ["*"]
 
@@ -94,6 +99,7 @@ class AppConfig(BaseModel):
     queue: QueueConfig = QueueConfig()
     priority: PriorityConfig = PriorityConfig()
     backends: list[BackendConfig] = []
+    request: RequestConfig = RequestConfig()
     logging: LoggingConfig = LoggingConfig()
     debug: DebugConfig = DebugConfig()
     metrics: MetricsConfig = MetricsConfig()
@@ -140,6 +146,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
 
     result = AppConfig(**data)
     result._loaded_files = loaded_files  # type: ignore
+    result._config_path = str(config_path)  # type: ignore
     return result
 
 

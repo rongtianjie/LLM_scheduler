@@ -90,6 +90,30 @@ class PriorityQueue:
             self._processing.discard(request_id)
             self._condition.notify_all()
 
+    # ── Public mutation methods ────────────────────────────────────
+
+    def update_max_size(self, new_max_size: int) -> None:
+        """Update the max queue size. Does not evict existing items."""
+        self._max_size = new_max_size
+
+    async def update_concurrency(self, new_concurrency: int) -> None:
+        """Update the max concurrent processing count and notify waiters."""
+        async with self._lock:
+            self._max_concurrency = new_concurrency
+            self._condition.notify_all()
+
+    async def cancel(self, request_id: str, user_name: str) -> bool:
+        """Cancel a queued request. Returns True if found and removed."""
+        async with self._lock:
+            for i, entry in enumerate(self._heap):
+                ctx = entry[-1]
+                if ctx.request_id == request_id and ctx.user_name == user_name:
+                    self._heap.pop(i)
+                    heapq.heapify(self._heap)
+                    self._condition.notify_all()
+                    return True
+            return False
+
 
 # ── Singleton ───────────────────────────────────────────────────────
 

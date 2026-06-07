@@ -4,13 +4,27 @@
     <h2>Request Logs</h2>
 </div>
 
-<div class="filters">
+<div class="filters" style="flex-wrap:wrap">
     <input type="text" id="filter-user" placeholder="Filter by user..." class="input">
     <select id="filter-endpoint" class="input">
         <option value="">All endpoints</option>
         <option value="/v1/chat/completions">/v1/chat/completions</option>
         <option value="/v1/messages">/v1/messages</option>
     </select>
+    <input type="text" id="filter-model" placeholder="Model..." class="input" style="width:120px">
+    <select id="filter-status" class="input">
+        <option value="">All status</option>
+        <option value="success">Success</option>
+        <option value="error">Error</option>
+        <option value="2xx">2xx</option>
+        <option value="4xx">4xx</option>
+        <option value="5xx">5xx</option>
+    </select>
+    <input type="date" id="filter-date-start" class="input" style="width:140px" title="Start date">
+    <input type="date" id="filter-date-end" class="input" style="width:140px" title="End date">
+    <label class="checkbox-label" style="white-space:nowrap">
+        <input type="checkbox" id="auto-refresh" checked onchange="toggleAutoRefresh()"> Auto
+    </label>
     <button class="btn btn-primary" onclick="loadLogs()">Refresh</button>
 </div>
 
@@ -43,9 +57,17 @@ let currentPage = 1;
 async function loadLogs() {
     const user = document.getElementById('filter-user').value;
     const endpoint = document.getElementById('filter-endpoint').value;
+    const model = document.getElementById('filter-model').value;
+    const status = document.getElementById('filter-status').value;
+    const dateStart = document.getElementById('filter-date-start').value;
+    const dateEnd = document.getElementById('filter-date-end').value;
     const params = new URLSearchParams({page: currentPage, per_page: 50});
     if (user) params.set('user', user);
     if (endpoint) params.set('endpoint', endpoint);
+    if (model) params.set('model', model);
+    if (status) params.set('status', status);
+    if (dateStart) params.set('date_start', dateStart + 'T00:00:00');
+    if (dateEnd) params.set('date_end', dateEnd + 'T23:59:59');
 
     const res = await fetch('/admin/api/logs?' + params.toString());
     const data = await res.json();
@@ -82,7 +104,16 @@ function goPage(p) {
     loadLogs();
 }
 
-setInterval(loadLogs, 5000);
+let _autoRefreshId = setInterval(loadLogs, 5000);
+
+function toggleAutoRefresh() {
+    if (document.getElementById('auto-refresh').checked) {
+        _autoRefreshId = setInterval(loadLogs, 5000);
+    } else {
+        clearInterval(_autoRefreshId);
+    }
+}
+
 loadLogs();
 </script>
 {% endblock %}

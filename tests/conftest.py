@@ -3,7 +3,14 @@ from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
 
-from app.config import AppConfig
+from app.config import AppConfig, BackendConfig
+
+
+@pytest.fixture(autouse=True)
+def _clear_login_failures():
+    """Reset login failure tracking before each test to avoid cross-test lockout."""
+    from app.api.admin_pages import reset_login_failures
+    reset_login_failures()
 
 
 def make_config(**overrides) -> AppConfig:
@@ -57,3 +64,33 @@ async def queue_with_auth() -> AppConfig:
     )
     await conn.commit()
     return cfg
+
+
+@pytest_asyncio.fixture
+async def config_with_backends() -> AppConfig:
+    """Config with multiple test backends for routing tests."""
+    cfg = make_config()
+    cfg.backends = [
+        BackendConfig(name="openai1", base_url="http://o1", protocols=["openai"], models=["gpt-4"]),
+        BackendConfig(name="openai2", base_url="http://o2", protocols=["openai"], models=["*"]),
+        BackendConfig(name="anthropic1", base_url="http://a1", protocols=["anthropic"], models=["claude-3"]),
+    ]
+    import app.config as config_module
+    config_module._config = cfg
+    from app.core.health_checker import init_health_checker
+    init_health_checker()
+    return cfg
+
+
+@pytest_asyncio.fixture
+async def rate_limiter():
+    """Create a fresh rate limiter instance."""
+    from app.core.rate_limiter import RateLimiter
+    return RateLimiter()
+
+
+@pytest_asyncio.fixture
+async def priority_queue():
+    """Create a fresh priority queue with max_size=10."""
+    from app.core.queue import PriorityQueue
+    return PriorityQueue(max_size=10, max_concurrency=2)

@@ -24,6 +24,9 @@
    - [Token Quota Checker](#token-quota-checker)
    - [Adapters](#adapters)
    - [Priority Strategies](#priority-strategies)
+   - [Backend Health Check & Failover](#backend-health-check--failover)
+   - [Request Cancellation API](#request-cancellation-api)
+   - [Model-level Routing](#model-level-routing)
 9. [Proxy Support](#proxy-support)
 10. [Debug Mode](#debug-mode)
 11. [Logging & Metrics](#logging--metrics)
@@ -99,16 +102,19 @@ app/
 ├── models.py                # Pydantic schemas + dataclass models
 │
 ├── api/
-│   ├── proxy.py             # Proxy endpoints (/v1/chat/completions, /v1/messages, /v1/models, /v1/queue)
-│   ├── admin_api.py         # Admin REST API (keys, stats, logs, config management)
-│   └── admin_pages.py       # Admin page routes (login, logout, dashboard, api-keys, logs, management)
+│   ├── proxy.py             # Proxy endpoints (/v1/chat/completions, /v1/messages, /v1/models, /v1/queue), request cancellation
+│   ├── admin_api.py         # Admin REST API (keys, stats, logs, config, health, password)
+│   └── admin_pages.py       # Admin page routes (login with lockout, logout, dashboard, api-keys, logs, management)
 │
 ├── core/
-│   ├── queue.py             # Async priority queue (heapq + asyncio.Condition)
+│   ├── queue.py             # Async priority queue (heapq + asyncio.Condition) with cancel support
 │   ├── auth.py              # API key authentication + admin session management
 │   ├── metrics.py           # Prometheus metric definitions
 │   ├── rate_limiter.py      # In-memory sliding window rate limiter
-│   └── quota_checker.py     # SQL-based daily/monthly token quota checker
+│   ├── quota_checker.py     # SQL-based daily/monthly token quota checker
+│   ├── health_checker.py    # Backend health probing with auto-failover
+│   ├── password.py          # bcrypt password hashing & verification
+│   └── http_client.py       # Shared httpx AsyncClient with connection-pool reuse
 │
 ├── adapters/
 │   ├── base.py              # Abstract base adapter with proxy support
@@ -120,16 +126,18 @@ app/
 │   ├── api_key_based.py     # API-key-based priority strategy
 │   └── factory.py           # Strategy factory
 │
-├── templates/               # Jinja2 HTML templates
-│   ├── base.html            # Layout (sidebar, nav, 401 interceptor)
-│   ├── login.html           # Login page
+├── templates/               # Jinja2 HTML templates (dark mode support, responsive layout)
+│   ├── base.html            # Layout (sidebar, nav, theme toggle, hamburger menu, 401 interceptor)
+│   ├── login.html           # Login page (with lockout error display)
 │   ├── dashboard.html       # Dashboard (stats, charts, per-key table)
 │   ├── api_keys.html        # API key management page
-│   ├── logs.html            # Request logs page
+│   ├── logs.html            # Request logs page (model/status/date filters)
 │   └── management.html      # Runtime configuration (Scheduling/Backend/System tabs)
 │
 ├── static/
-│   ├── style.css            # Sci-fi theme stylesheet
+│   ├── style.css            # Light sci-tech theme with dark mode & responsive breakpoints
+│   └── chart.umd.min.js     # Chart.js v4 (local deployment)
+││   ├── style.css            # Sci-fi theme stylesheet
 │   └── chart.umd.min.js     # Chart.js v4 (local deployment)
 │
 data/                        # Runtime data (auto-created)
@@ -178,6 +186,7 @@ curl http://localhost:8001/v1/chat/completions \
 - `429 Too Many Requests` — Queue full / rate limited / quota exceeded
 - `408 Request Timeout` — Queue wait timeout
 - `502 Bad Gateway` — No backend configured / backend unreachable
+- `413 Payload Too Large` — Request body exceeds `request.max_body_size`
 - `504 Gateway Timeout` — Backend request timeout
 
 ---
@@ -241,6 +250,40 @@ curl http://localhost:8001/v1/queue
 
 ---
 
+
+---
+
+#### `DELETE /v1/queue/{request_id}` — Cancel a queued request
+
+Cancels a request that is currently waiting in the queue. **Authentication required.**
+
+**Headers:**
+- `Authorization: Bearer <api-key>` — API key authentication
+
+**Path Parameters:**
+- `request_id` (string) — The request ID to cancel
+
+**Example:**
+```bash
+curl -X DELETE http://localhost:8001/v1/queue/a1b2c3d4e5f6... \
+  -H "Authorization: Bearer sk-your-api-key"
+```
+
+**Response:**
+```json
+{
+    "ok": true,
+    "request_id": "a1b2c3d4e5f6..."
+}
+```
+
+**Status Codes:**
+- `200 OK` — Request cancelled
+- `401 Unauthorized` — Missing or invalid API key
+- `404 Not Found` — Request not found in queue
+
+---
+
 #### `GET /v1/models` — List available models
 
 Forwards to the first available OpenAI-capable backend's `/models` endpoint. **Authentication required.**
@@ -282,6 +325,39 @@ curl http://localhost:8001/health
 
 ---
 
+
+---
+
+#### `GET /health/ready` — Readiness check
+
+Kubernetes-style readiness probe. Checks database connectivity and that at least one enabled backend is healthy.
+
+**Example:**
+```bash
+curl http://localhost:8001/health/ready
+```
+
+**Response (ready):**
+```json
+{
+    "status": "ready"
+}
+```
+
+**Response (not ready):**
+```json
+{
+    "status": "not ready",
+    "reason": "no healthy backend"
+}
+```
+
+**Status Codes:**
+- `200 OK` — Ready
+- `503 Service Unavailable` — Not ready
+
+---
+
 #### `GET /metrics` — Prometheus metrics
 
 Returns Prometheus-format metrics. Only available when `metrics.enabled = true`. **No authentication required.**
@@ -292,6 +368,8 @@ Returns Prometheus-format metrics. Only available when `metrics.enabled = true`.
 - `gateway_requests_processing` (Gauge) — Currently processing (0 or 1)
 - `gateway_request_duration_seconds` (Histogram) — End-to-end duration in seconds
 - `gateway_wait_time_seconds` (Histogram) — Queue wait time in seconds
+- `gateway_backend_request_duration_seconds` (Histogram) — Backend request duration by backend name and protocol
+- `gateway_tokens_total` (Counter) — Total tokens by model and type (prompt/completion)
 
 **Example:**
 ```bash
@@ -470,6 +548,56 @@ Returns all configured API keys with their settings.
 
 ---
 
+
+#### `GET /admin/api/backends/health` — Backend health status
+
+Returns health status for all configured backends.
+
+**Parameters:** None
+
+**Response:**
+```json
+{
+    "https://api.openai.com": {
+        "healthy": true,
+        "last_check": 1717800000.0,
+        "fail_count": 0,
+        "last_error": ""
+    }
+}
+```
+
+**Status Codes:** `200 OK`, `401 Unauthorized`
+
+---
+
+#### `PUT /admin/api/admin/password` — Change admin password
+
+Changes the admin password. The new password is bcrypt-hashed and persisted.
+
+**Request Body:**
+```json
+{
+    "old_password": "admin123",
+    "new_password": "newSecurePassword"
+}
+```
+
+**Fields:**
+- `old_password` (string, required) — Current password
+- `new_password` (string, required) — New password (minimum 6 characters)
+
+**Response:**
+```json
+{
+    "ok": true
+}
+```
+
+**Status Codes:** `200 OK`, `401 Unauthorized`, `403 Forbidden`, `422 Unprocessable Entity`
+
+---
+
 #### `GET /admin/api/stats` — Dashboard statistics
 
 **Query Parameters:**
@@ -540,9 +668,13 @@ Returns all configured API keys with their settings.
 
 **Query Parameters:**
 - `page` (int, default: `1`) — Page number (1-indexed)
-- `per_page` (int, default: `50`, max: typically limited by query) — Items per page
-- `endpoint` (string, optional) — Filter by endpoint (e.g., `/v1/chat/completions`)
+- `per_page` (int, default: `50`) — Items per page
+- `endpoint` (string, optional) — Filter by endpoint
 - `user` (string, optional) — Filter by username
+- `model` (string, optional) — Filter by model name (partial match)
+- `status` (string, optional) — Filter by status: `"success"`, `"error"`, `"2xx"`, `"4xx"`, `"5xx"`
+- `date_start` (string, optional) — Filter by start date (ISO format)
+- `date_end` (string, optional) — Filter by end date (ISO format)
 
 **Response:**
 ```json
@@ -716,7 +848,7 @@ class AuthConfig:
 class AdminConfig:
     enabled: bool = True
     username: str = "admin"
-    password: str = "admin123"
+    password: str = "admin123"                 # bcrypt-hashed after first startup
     secret_key: str = "llm-scheduler-default-secret"  # Session encryption
     session_https_only: bool = False  # Secure cookie flag
 
@@ -728,6 +860,9 @@ class QueueConfig:
     concurrency: int = 1              # Parallel processing count
     timeout: int = 300                # Queue wait timeout (seconds), 0=unlimited
 
+class RequestConfig:
+    max_body_size: int = 10485760   # Max request body in bytes (10 MB default)
+
 class PriorityConfig:
     strategy: str = "api_key"         # Priority strategy name
     default_priority: int = 100       # Default priority for anonymous/unauthenticated
@@ -737,6 +872,7 @@ class BackendConfig:
     base_url: str = ""                # Backend API base URL
     api_key: str = ""                 # Backend authentication key
     timeout: int = 300                # Backend request timeout
+    models: list[str] = []           # Empty or ["*"] = match all; specific model names = route only those
     protocols: list[str] = ["openai"] # ["openai"] or ["anthropic"] or both
     enabled: bool = True
 
@@ -795,6 +931,9 @@ queue:
   concurrency: 1
   timeout: 300
 
+request:
+  max_body_size: 10485760
+
 logging:
   level: "INFO"
   format: "json"
@@ -843,11 +982,17 @@ When `auth.enabled = false`, all requests are treated as `"anonymous"` with the 
 
 Admin pages and API use Session/Cookie-based authentication:
 
-1. `POST /admin/login` — validates credentials against `admin.username`/`admin.password`
+1. `POST /admin/login` — validates credentials against `admin.username`/`admin.password` (supports bcrypt hashes and legacy plaintext)
 2. On success, sets `session["admin"] = True` and `session["username"] = <username>`
 3. Session middleware uses `secret_key` for encryption, `max_age=86400` (24 hours)
 4. `https_only` flag controls the `Secure` cookie attribute
 5. `GET /admin/logout` clears the session
+
+**Login Lockout:** After 5 failed login attempts from the same IP address, that IP is locked out for 300 seconds (5 minutes). The lockout is tracked in-memory and resets on server restart.
+
+**Password Hashing:** Admin passwords are stored as bcrypt hashes. On first startup, any plaintext password in `config.yaml` is automatically hashed and written back to the config file. A `reset_admin_password` file can be placed in the working directory containing a new plaintext password — it will be read, hashed, and deleted on the next startup.
+
+**Password Reset (API):** Use `PUT /admin/api/admin/password` to change the admin password at runtime. The new password is bcrypt-hashed and persisted to the config file.
 
 ---
 
@@ -995,6 +1140,53 @@ Both adapters create a new `httpx.AsyncClient` per request with `trust_env=False
 
 ---
 
+
+---
+
+### Backend Health Check & Failover
+
+**File:** `app/core/health_checker.py`
+
+The health checker periodically probes all enabled backends and automatically marks unhealthy ones so they are skipped during routing.
+
+**Behavior:**
+- Probes `GET {base_url}/health` on each enabled backend
+- After 3 consecutive failures, the backend is marked unhealthy and excluded
+- When a backend recovers, it is immediately re-enabled
+- Health state exposed via `GET /admin/api/backends/health` and `GET /health/ready`
+
+### Request Cancellation
+
+**Endpoint:** `DELETE /v1/queue/{request_id}` (`app/api/proxy.py`)
+
+Clients can cancel a request still waiting in the queue.
+
+**Queue cancel method** (`app/core/queue.py`):
+- `cancel(request_id, user_name)` — Scans the heap for a matching request, removes it
+- Only the owner (matching `user_name`) can cancel their own requests
+
+### Model-level Routing
+
+Backends can be configured to serve only specific models via the `models` field.
+
+```yaml
+backends:
+  - name: "openai-gpt4"
+    base_url: "https://api.openai.com"
+    protocols: ["openai"]
+    models: ["gpt-4", "gpt-4-turbo"]  # Only route these models
+  - name: "openai-all"
+    base_url: "https://api.openai.com"
+    protocols: ["openai"]
+    models: []  # Empty = match all models (default)
+```
+
+**Matching priority:**
+1. **Exact model match** — Requested model is in the backend's `models` list
+2. **Wildcard** — `models` contains `"*"` or is empty, matches all
+3. **Protocol match fallback** — Falls back to protocol-only matching
+
+Unhealthy backends are always excluded regardless of model match.
 ## Proxy Support
 
 The gateway supports routing backend LLM requests through HTTP, HTTPS, or SOCKS5 proxy servers.
@@ -1045,7 +1237,8 @@ Uses `structlog` with configurable output format:
 - **Text format** (`logging.format: "text"`): Human-readable colored console output
 
 **Log fields (request lifecycle):**
-- `request_id`, `user`, `endpoint`, `model`, `priority`
+- `trace_id` — Client-provided or auto-generated trace ID (bound to all log entries for a request)
+- `request_id`, `user`, `endpoint`, `model`, `priority`, `backend`
 - `wait_time_ms`, `processing_time_ms`
 - `status_code`, `streamed`, `prompt_tokens`, `completion_tokens`
 - `error`, `client_ip`
@@ -1066,6 +1259,8 @@ Available at `GET /metrics` when `metrics.enabled = true` (default).
 | `gateway_requests_processing` | Gauge | — | Currently processing (0 or 1) |
 | `gateway_request_duration_seconds` | Histogram | `endpoint` | End-to-end duration (buckets: 0.1–120s) |
 | `gateway_wait_time_seconds` | Histogram | `endpoint` | Queue wait time (buckets: 0.01–30s) |
+| `gateway_backend_request_duration_seconds` | Histogram | `backend`, `protocol` | Backend request duration (buckets: 0.1–120s) |
+| `gateway_tokens_total` | Counter | `model`, `type` | Total tokens processed (type: `prompt` or `completion`) |
 
 ---
 

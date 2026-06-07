@@ -8,9 +8,10 @@ from app.models import RequestContext
 class BaseAdapter(ABC):
     """Abstract base adapter for LLM backend communication."""
 
-    def __init__(self, backend_config: BackendConfig, proxy_url: str = ""):
+    def __init__(self, backend_config: BackendConfig, proxy_url: str = "", trace_id: str = ""):
         self._config = backend_config
         self._proxy_url = proxy_url
+        self._trace_id = trace_id
 
     @property
     def config(self) -> BackendConfig:
@@ -19,6 +20,10 @@ class BaseAdapter(ABC):
     @property
     def proxy_url(self) -> str:
         return self._proxy_url
+
+    @property
+    def trace_id(self) -> str:
+        return self._trace_id
 
     @abstractmethod
     async def stream(self, context: RequestContext) -> AsyncGenerator[bytes, None]:

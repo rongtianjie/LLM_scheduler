@@ -25,11 +25,15 @@
 - **Dashboard 图表**：Chart.js 时间序列图表，支持 1h/6h/24h/7d/30d 周期切换
 - **Debug 模式**：开启后将完整请求/响应体保存到磁盘，便于排查问题
 - **API Key 认证**：独立 API Key，可配置开关
-- **管理员登录**：自定义登录页面，基于 Session/Cookie 的认证机制
+- **管理员登录**：自定义登录页面，基于 Session/Cookie 的认证机制；bcrypt 密码哈希，兼容明文密码自动升级
 - **代理服务器**：支持通过 HTTP/HTTPS/SOCKS5 代理服务器转发后端请求
 - **CORS 支持**：可配置跨域请求来源
-- **结构化日志**：JSON 格式，完整请求生命周期记录（含 token 用量）
-- **Prometheus 指标**：队列长度、请求延迟、处理时间等
+- **结构化日志**：JSON 格式，完整请求生命周期记录（含 token 用量和 Trace ID）
+- **Prometheus 指标**：队列长度、请求延迟、处理时间、后端请求耗时、Token 计数
+- **健康检查与故障转移**：自动后端探活，标记 unhealthy 后跳过；`/health/ready` 就绪检查端点
+- **请求取消**：通过 `DELETE /v1/queue/{request_id}` 取消排队中的请求
+- **模型级路由**：按模型名称将请求路由到指定后端（精确匹配 > 通配符 > 协议回退）
+- **暗色模式与响应式**：CSS 暗色模式，localStorage 持久化；汉堡菜单响应式布局适配移动端
 - **嵌入式管理面板**：科技感 UI，Web 界面管理 API Key、查看日志、统计和仪表盘
 - **Docker 部署**：一键启动，数据持久化
 
@@ -99,6 +103,10 @@ curl http://localhost:8001/v1/messages \
   -H "Content-Type: application/json" \
   -d '{"model": "claude-3-opus-20240229", "max_tokens": 1024, "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 
+# 取消排队中的请求
+curl -X DELETE http://localhost:8001/v1/queue/{request_id} \
+  -H "Authorization: Bearer sk-your-api-key"
+
 # 查看队列状态（无需认证）
 curl http://localhost:8001/v1/queue
 ```
@@ -109,14 +117,14 @@ curl http://localhost:8001/v1/queue
 
 浏览器访问 `http://localhost:8001/admin`，使用配置的管理员账号登录。
 
-- **登录页面**：自定义登录表单，蓝紫渐变科技感设计，基于 Session/Cookie 认证（24小时过期）
+- **登录页面**：自定义登录表单，蓝紫渐变科技感设计，基于 Session/Cookie 认证（24小时过期），bcrypt 密码哈希，暴力破解锁定（5次失败/300秒）
 - **Dashboard**：实时队列状态、请求统计，Chart.js 时间序列图表（Requests/Tokens），支持时间范围选择（1h/6h/24h/7d/30d），按 API Key 展示请求数和 Token 用量
-- **API Keys**：创建/编辑/删除 API Key，创建时显示完整 Key 并支持一键复制
-- **Logs**：查看请求历史，含 Token 用量列和状态码颜色标记，支持按用户和端点筛选分页
-- **Management**：运行时配置管理，分三个 Tab（Scheduling / Backend / System）
+- **API Keys**：创建/编辑/删除 API Key，Key 始终可见并可复制，可配置列显示（localStorage 持久化）
+- **Logs**：查看请求历史，含 Token 用量列和状态码颜色标记，支持按用户、模型、状态、日期范围和端点筛选分页；自动刷新开关
+- **Management**：运行时配置管理，分三个 Tab（Scheduling / Backend / System）+ 标签栏 Save 按钮
   - **Scheduling**：队列配置（Max Length、Concurrency）+ 优先级策略
-  - **Backend**：统一后端列表，支持添加/编辑/删除、协议选择（OpenAI/Anthropic）和启用/禁用开关
-  - **System**：Debug 模式、Prometheus Metrics、代理服务器（HTTP/HTTPS/SOCKS5）配置
+  - **Backend**：统一后端列表，支持添加/编辑/删除、协议选择（OpenAI/Anthropic）、模型路由和启用/禁用开关；实时健康状态
+  - **System**：Debug 模式、Prometheus Metrics、代理服务器（HTTP/HTTPS/SOCKS5）配置；管理员密码修改
 
 ## 队列行为
 
@@ -126,6 +134,7 @@ curl http://localhost:8001/v1/queue
 4. 队列满时返回 HTTP 429
 5. 流式请求持续期间，后续请求排队等待
 6. 队列等待超时时返回 HTTP 408（可通过 `queue.timeout` 配置，0=无限等待）
+7. 排队中的请求可通过 `DELETE /v1/queue/{request_id}` 取消
 
 ## 速率限制与配额
 
@@ -143,12 +152,12 @@ uv run pytest tests/
 
 ```
 app/
-├── main.py              # 入口，应用工厂，CORS/SessionMiddleware
+├── main.py              # 入口，应用工厂，CORS/SessionMiddleware, GZip
 ├── config.py            # 配置加载（Pydantic + YAML）
 ├── database.py          # SQLite 管理（WAL模式、索引、日志清理）
 ├── models.py            # 数据模型（Pydantic + dataclass）
 ├── api/                 # API 路由处理（proxy、admin pages、admin REST）
-├── core/                # 核心逻辑（queue、auth、metrics、rate limiter、quota）
+├── core/                # 核心逻辑（queue、auth、metrics、rate limiter、quota、health_checker、password、http_client）
 ├── adapters/            # LLM 后端适配器（OpenAI、Anthropic）
 ├── strategies/          # 优先级计算策略
 ├── templates/           # Jinja2 管理页面模板
@@ -156,4 +165,3 @@ app/
 ```
 
 详细的逐文件项目结构说明请参见详细文档中的[项目结构](./DOCS.zh.md#项目结构)章节。
-
