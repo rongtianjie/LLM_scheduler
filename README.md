@@ -1,4 +1,6 @@
 > [**中文版本**](./README.zh.md) | [**English Version**](./README.md)
+>
+> **Detailed API Documentation: [English Documentation](./DOCS.md) | [中文文档](./DOCS.zh.md)**
 
 # LLM Gateway Proxy
 
@@ -74,111 +76,30 @@ docker run -d \
 
 ## Configuration
 
-`config.yaml` contains only startup-level settings (server, auth, admin, database, queue, logging, log_retention, cors, proxy). Runtime configuration (queue, backend, debug, metrics, proxy) can also be managed through the admin panel. For default values, see `app/config.py`.
+`config.yaml` contains startup-level settings (server, auth, admin, database, queue, logging, log_retention, cors, proxy). Runtime configuration (queue, priority, backend, debug, metrics, proxy) can be managed via the admin panel.
 
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8001
+For the full configuration reference including all default values, see [Configuration Reference](./DOCS.md#configuration-reference) in the detailed documentation.
 
-auth:
-  enabled: true                  # API Key authentication toggle
-
-admin:
-  enabled: true
-  username: "admin"
-  password: "admin123"
-  secret_key: "llm-gateway-default-secret"  # Session encryption key
-  session_https_only: false      # Set to true in production
-
-database:
-  path: "data/gateway.db"
-
-queue:
-  max_length: 5
-  concurrency: 1
-  timeout: 300                   # Queue wait timeout (seconds), 0 = unlimited
-
-logging:
-  level: "INFO"
-  format: "json"                 # "json" | "text"
-
-log_retention:
-  retention_days: 90             # Log retention days
-  max_records: 100000            # Maximum log records
-
-cors:
-  origins:
-    - "*"                        # Allowed CORS origins
-
-proxy:
-  enabled: false                 # Proxy toggle
-  protocol: "http"               # "http" | "https" | "socks5"
-  host: ""
-  port: 0
-  username: ""                   # Proxy authentication (optional)
-  password: ""
-```
-
-## API Usage
-
-### Proxy Requests
+## Basic Usage
 
 ```bash
-# OpenAI format
+# OpenAI-compatible request
 curl http://localhost:8001/v1/chat/completions \
   -H "Authorization: Bearer sk-your-api-key" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "stream": true
-  }'
+  -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 
-# Anthropic format
+# Anthropic-compatible request
 curl http://localhost:8001/v1/messages \
   -H "Authorization: Bearer sk-your-api-key" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-3-opus-20240229",
-    "max_tokens": 1024,
-    "messages": [{"role": "user", "content": "Hello"}],
-    "stream": true
-  }'
+  -d '{"model": "claude-3-opus-20240229", "max_tokens": 1024, "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 
-# Check queue status (no auth required)
+# Check queue status (public, no auth required)
 curl http://localhost:8001/v1/queue
 ```
 
-### Admin API
-
-```bash
-# Login to get session cookie
-curl -c cookies.txt -X POST http://localhost:8001/admin/login \
-  -d "username=admin&password=admin123"
-
-# Get queue status
-curl -b cookies.txt http://localhost:8001/admin/api/queue
-
-# Create API Key (with rate limit and token quota support)
-curl -b cookies.txt -X POST http://localhost:8001/admin/api/keys \
-  -H "Content-Type: application/json" \
-  -d '{"name": "alice", "priority": 50, "rate_limit": 30, "token_quota_daily": 100000}'
-
-# Query logs
-curl -b cookies.txt "http://localhost:8001/admin/api/logs?page=1&per_page=20"
-
-# Get statistics (supported time ranges: 1h, 6h, 24h, 7d, 30d, all)
-curl -b cookies.txt "http://localhost:8001/admin/api/stats?period=24h"
-
-# Get time-series data (for charts)
-curl -b cookies.txt "http://localhost:8001/admin/api/stats/timeseries?period=24h"
-
-# Update proxy config
-curl -b cookies.txt -X PUT http://localhost:8001/admin/api/config \
-  -H "Content-Type: application/json" \
-  -d '{"proxy": {"enabled": true, "protocol": "socks5", "host": "127.0.0.1", "port": 1080}}'
-```
+For the complete API reference with all endpoints, request/response schemas, and examples, see [API Reference](./DOCS.md#api-reference).
 
 ## Admin Panel
 
@@ -214,36 +135,21 @@ Access `http://localhost:8001/admin` in your browser and log in with the configu
 uv run pytest tests/
 ```
 
-## Development
-
-Project structure:
+## Project Structure
 
 ```
 app/
 ├── main.py              # Entry point, app factory, CORS/SessionMiddleware
-├── config.py            # Config loading (including Proxy/LogRetention/CorsConfig)
+├── config.py            # Config loading (Pydantic + YAML)
 ├── database.py          # SQLite management (WAL mode, indexes, log cleanup)
-├── models.py            # Data models
-├── api/
-│   ├── proxy.py         # Proxy endpoints (rate limiting, quota check, timeout)
-│   ├── admin_api.py     # Admin API (including time-series)
-│   └── admin_pages.py   # Admin pages (including login/logout)
-├── core/
-│   ├── queue.py         # Priority queue (with timeout support)
-│   ├── auth.py          # Authentication (Session + API Key)
-│   ├── metrics.py       # Metrics
-│   ├── rate_limiter.py  # In-memory sliding window rate limiter
-│   └── quota_checker.py # Token usage quota checker
-├── adapters/
-│   ├── base.py          # Adapter base class (with proxy support)
-│   ├── openai.py        # OpenAI adapter
-│   └── anthropic.py     # Anthropic adapter
-├── strategies/
-│   ├── base.py          # Strategy abstraction
-│   └── api_key_based.py # API Key priority strategy
-├── templates/           # Jinja2 page templates
-└── static/
-    ├── style.css        # Sci-fi theme styles
-    └── chart.umd.min.js # Chart.js (locally deployed)
+├── models.py            # Data models (Pydantic + dataclass)
+├── api/                 # API route handlers (proxy, admin pages, admin REST)
+├── core/                # Core logic (queue, auth, metrics, rate limiter, quota)
+├── adapters/            # LLM backend adapters (OpenAI, Anthropic)
+├── strategies/          # Priority computation strategies
+├── templates/           # Jinja2 admin page templates
+└── static/              # Static assets (CSS, Chart.js)
 ```
+
+For the detailed project structure with file-by-file descriptions, see [Project Structure](./DOCS.md#project-structure).
 

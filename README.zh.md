@@ -1,4 +1,6 @@
 > [**English Version**](./README.md) | [**中文版本**](./README.zh.md)
+>
+> **详细API文档请参见：[中文文档](./DOCS.zh.md) | [English Documentation](./DOCS.md)**
 
 # LLM Gateway Proxy
 
@@ -74,111 +76,30 @@ docker run -d \
 
 ## 配置说明
 
-`config.yaml` 仅包含启动级配置（server、auth、admin、database、queue、logging、log_retention、cors、proxy），运行时配置（队列、后端、Debug、Metrics、Proxy）也可通过管理页面控制。默认值见 `app/config.py`。
+`config.yaml` 包含启动级配置（server、auth、admin、database、queue、logging、log_retention、cors、proxy），运行时配置（队列、优先级、后端、Debug、Metrics、Proxy）可通过管理页面控制。
 
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8001
+完整的配置参考（含所有默认值）请参见详细文档中的[配置参考](./DOCS.zh.md#配置参考)章节。
 
-auth:
-  enabled: true                  # API Key 认证开关
-
-admin:
-  enabled: true
-  username: "admin"
-  password: "admin123"
-  secret_key: "llm-gateway-default-secret"  # Session 加密密钥
-  session_https_only: false      # 生产环境建议设为 true
-
-database:
-  path: "data/gateway.db"
-
-queue:
-  max_length: 5
-  concurrency: 1
-  timeout: 300                   # 队列等待超时（秒），0=无限
-
-logging:
-  level: "INFO"
-  format: "json"                 # "json" | "text"
-
-log_retention:
-  retention_days: 90             # 日志保留天数
-  max_records: 100000            # 最大日志记录数
-
-cors:
-  origins:
-    - "*"                        # 允许跨域来源列表
-
-proxy:
-  enabled: false                 # 代理服务器开关
-  protocol: "http"               # "http" | "https" | "socks5"
-  host: ""
-  port: 0
-  username: ""                   # 代理认证（可选）
-  password: ""
-```
-
-## API 使用
-
-### 代理请求
+## 基本用法
 
 ```bash
-# OpenAI 格式
+# OpenAI 兼容请求
 curl http://localhost:8001/v1/chat/completions \
   -H "Authorization: Bearer sk-your-api-key" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "stream": true
-  }'
+  -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 
-# Anthropic 格式
+# Anthropic 兼容请求
 curl http://localhost:8001/v1/messages \
   -H "Authorization: Bearer sk-your-api-key" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-3-opus-20240229",
-    "max_tokens": 1024,
-    "messages": [{"role": "user", "content": "Hello"}],
-    "stream": true
-  }'
+  -d '{"model": "claude-3-opus-20240229", "max_tokens": 1024, "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 
 # 查看队列状态（无需认证）
 curl http://localhost:8001/v1/queue
 ```
 
-### 管理接口
-
-```bash
-# 登录获取 session cookie
-curl -c cookies.txt -X POST http://localhost:8001/admin/login \
-  -d "username=admin&password=admin123"
-
-# 获取队列状态
-curl -b cookies.txt http://localhost:8001/admin/api/queue
-
-# 创建 API Key（支持速率限制和 Token 配额）
-curl -b cookies.txt -X POST http://localhost:8001/admin/api/keys \
-  -H "Content-Type: application/json" \
-  -d '{"name": "alice", "priority": 50, "rate_limit": 30, "token_quota_daily": 100000}'
-
-# 查询日志
-curl -b cookies.txt "http://localhost:8001/admin/api/logs?page=1&per_page=20"
-
-# 获取统计（支持时间范围: 1h, 6h, 24h, 7d, 30d, all）
-curl -b cookies.txt "http://localhost:8001/admin/api/stats?period=24h"
-
-# 获取时间序列数据（用于图表）
-curl -b cookies.txt "http://localhost:8001/admin/api/stats/timeseries?period=24h"
-
-# 更新代理配置
-curl -b cookies.txt -X PUT http://localhost:8001/admin/api/config \
-  -H "Content-Type: application/json" \
-  -d '{"proxy": {"enabled": true, "protocol": "socks5", "host": "127.0.0.1", "port": 1080}}'
-```
+完整的 API 参考（含所有端点、请求/响应结构和示例）请参见详细文档中的 [API 参考](./DOCS.zh.md#api-参考) 章节。
 
 ## 管理面板
 
@@ -214,36 +135,21 @@ curl -b cookies.txt -X PUT http://localhost:8001/admin/api/config \
 uv run pytest tests/
 ```
 
-## 开发
-
-项目结构：
+## 项目结构
 
 ```
 app/
 ├── main.py              # 入口，应用工厂，CORS/SessionMiddleware
-├── config.py            # 配置加载（含 Proxy/LogRetention/CorsConfig）
+├── config.py            # 配置加载（Pydantic + YAML）
 ├── database.py          # SQLite 管理（WAL模式、索引、日志清理）
-├── models.py            # 数据模型
-├── api/
-│   ├── proxy.py         # 代理端点（含速率限制、配额检查、超时）
-│   ├── admin_api.py     # 管理 API（含 timeseries）
-│   └── admin_pages.py   # 管理页面（含登录/登出）
-├── core/
-│   ├── queue.py         # 优先级队列（含超时支持）
-│   ├── auth.py          # 认证（Session + API Key）
-│   ├── metrics.py       # 指标
-│   ├── rate_limiter.py  # 内存滑动窗口速率限制器
-│   └── quota_checker.py # Token 用量配额检查
-├── adapters/
-│   ├── base.py          # 适配器基类（含代理支持）
-│   ├── openai.py        # OpenAI 适配器
-│   └── anthropic.py     # Anthropic 适配器
-├── strategies/
-│   ├── base.py          # 策略抽象
-│   └── api_key_based.py # API Key 优先级
-├── templates/           # Jinja2 页面模板
-└── static/
-    ├── style.css        # 科技感主题样式
-    └── chart.umd.min.js # Chart.js（本地部署）
+├── models.py            # 数据模型（Pydantic + dataclass）
+├── api/                 # API 路由处理（proxy、admin pages、admin REST）
+├── core/                # 核心逻辑（queue、auth、metrics、rate limiter、quota）
+├── adapters/            # LLM 后端适配器（OpenAI、Anthropic）
+├── strategies/          # 优先级计算策略
+├── templates/           # Jinja2 管理页面模板
+└── static/              # 静态资源（CSS、Chart.js）
 ```
+
+详细的逐文件项目结构说明请参见详细文档中的[项目结构](./DOCS.zh.md#项目结构)章节。
 

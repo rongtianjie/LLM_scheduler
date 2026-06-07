@@ -101,6 +101,7 @@ page (System tab). When changed via the admin API, both adapters are recreated i
 ### Proxy (port 8001)
 | Path | Description |
 |------|-------------|
+| `GET /` | Redirect to admin dashboard |
 | `GET /health` | Health check |
 | `POST /v1/chat/completions` | OpenAI-compatible proxy |
 | `POST /v1/messages` | Anthropic-compatible proxy |
@@ -128,7 +129,6 @@ page (System tab). When changed via the admin API, both adapters are recreated i
 | `GET /admin/api/logs` | Query logs (paginated, includes token columns) |
 | `GET /admin/api/config` | Get runtime config (queue, backends, debug, metrics, proxy) |
 | `PUT /admin/api/config` | Update runtime config (applies immediately) |
-| `POST /admin/api/config/sync-openai-to-anthropic` | Copy OpenAI backend config to Anthropic |
 
 ## Request Flow
 
