@@ -248,6 +248,8 @@ app/
 
 ## Extension Points
 
-- **Priority Strategy**: Implement the `PriorityStrategy` interface and switch via configuration
-- **Multi-Concurrency**: Set `queue.concurrency` > 1 and refactor to a worker pool
-- **Load Balancing**: Add upstream selection logic in the adapter layer
+All extension points have been implemented:
+
+- **Priority Strategy**: Fully supported via the `PriorityStrategy` interface, with the built-in `ApiKeyPriorityStrategy` and configurable strategy selection
+- **Multi-Concurrency**: Configurable via `queue.concurrency` (> 1 enables concurrent processing)
+- **Load Balancing**: Multiple backend URLs can be configured via `backends`, with built-in round-robin upstream selection in the adapter layer

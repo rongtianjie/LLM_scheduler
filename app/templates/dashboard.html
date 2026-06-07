@@ -231,7 +231,7 @@ async function refreshDashboard() {
         const stats = await statsRes.json();
 
         document.getElementById('queue-length').textContent = queue.current_waiting;
-        document.getElementById('queue-processing').textContent = queue.current_processing ? 'Yes' : 'No';
+        document.getElementById('queue-processing').textContent = queue.current_processing ? `Yes (${queue.processing_count}/${queue.max_concurrency})` : 'No';
         document.getElementById('queue-max').textContent = queue.max_length;
         document.getElementById('queue-full').textContent = queue.queue_full ? 'Yes' : 'No';
         document.getElementById('total-requests').textContent = stats.total_requests;

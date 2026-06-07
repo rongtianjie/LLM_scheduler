@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import AppConfig
+from app.config import AppConfig, BackendConfig
 
 
 @pytest.fixture
@@ -17,8 +17,12 @@ def client():
     cfg.auth.enabled = False
     cfg.admin.enabled = False
     cfg.metrics.enabled = False
-    cfg.openai_backend.api_key = "sk-test-backend"
-    cfg.anthropic_backend.api_key = "sk-test-backend"
+    cfg.backends = [
+        BackendConfig(name="test", base_url="http://10.255.255.1:1",
+                      api_key="sk-test-backend",
+                      timeout=1,
+                      protocols=["openai", "anthropic"]),
+    ]
     cfg_module._config = cfg
 
     # Use context manager to trigger startup events (DB init, queue init)
@@ -40,8 +44,9 @@ def test_redirect_root(client):
 def test_chat_completions_backend_unreachable(client):
     """When backend is unreachable, adapter returns error status."""
     import app.config as cfg_module
-    cfg_module._config.openai_backend.base_url = "http://10.255.255.1:1"
-    cfg_module._config.openai_backend.timeout = 1
+    if cfg_module._config.backends:
+        cfg_module._config.backends[0].base_url = "http://10.255.255.1:1"
+        cfg_module._config.backends[0].timeout = 1
 
     payload = {
         "model": "gpt-4",

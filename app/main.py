@@ -50,12 +50,15 @@ def create_app() -> FastAPI:
         # Startup
         cfg = get_config()
         await init_db(cfg)
-        init_queue(cfg.queue.max_length)
+        init_queue(cfg.queue.max_length, cfg.queue.concurrency)
         # Suppress uvicorn access logs (set after uvicorn's own log config)
         logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
         logger = structlog.get_logger()
 
         loaded = getattr(cfg, "_loaded_files", [])
+        backend_info = ", ".join(
+            f"{b.name or b.base_url}({','.join(b.protocols)})" for b in cfg.backends
+        ) if cfg.backends else "(none)"
         logger.info(
             "gateway.startup",
             port=cfg.server.port,
@@ -63,8 +66,7 @@ def create_app() -> FastAPI:
             queue_max=cfg.queue.max_length,
             priority_strategy=cfg.priority.strategy,
             auth_enabled=cfg.auth.enabled,
-            openai_backend_url=cfg.openai_backend.base_url,
-            anthropic_backend_url=cfg.anthropic_backend.base_url,
+            backends=backend_info,
             debug_enabled=cfg.debug.enabled,
         )
 

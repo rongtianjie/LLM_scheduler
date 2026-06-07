@@ -60,40 +60,10 @@
 
 <!-- ═══ Tab: Backend ═══ -->
 <div class="tab-panel" id="tab-backend">
-    <section class="config-section">
-        <h3>OpenAI Backend</h3>
-        <div class="form-group">
-            <label>Base URL</label>
-            <input type="text" id="openai-backend-base-url" required>
-        </div>
-        <div class="form-group">
-            <label>API Key</label>
-            <input type="password" id="openai-backend-api-key">
-        </div>
-        <div class="form-group">
-            <label>Timeout (seconds)</label>
-            <input type="number" id="openai-backend-timeout" min="1" max="3600" required>
-        </div>
-    </section>
-
-    <section class="config-section">
-        <div class="section-header">
-            <h3>Anthropic Backend</h3>
-            <button type="button" id="sync-backend-btn" class="btn btn-sm" title="Copy OpenAI config to Anthropic">↻ Sync from OpenAI</button>
-        </div>
-        <div class="form-group">
-            <label>Base URL</label>
-            <input type="text" id="anthropic-backend-base-url" required>
-        </div>
-        <div class="form-group">
-            <label>API Key</label>
-            <input type="password" id="anthropic-backend-api-key">
-        </div>
-        <div class="form-group">
-            <label>Timeout (seconds)</label>
-            <input type="number" id="anthropic-backend-timeout" min="1" max="3600" required>
-        </div>
-    </section>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+        <button type="button" class="btn btn-sm" onclick="openBackendModal()">+ Add Backend</button>
+    </div>
+    <div id="backends-list"></div>
 </div>
 
 <!-- ═══ Tab: System ═══ -->
@@ -169,12 +139,179 @@
 
 </form>
 
+<!-- Backend edit modal -->
+<div class="modal-overlay" id="backend-modal" style="display:none">
+    <div class="modal" style="width:520px">
+        <h3 id="backend-modal-title">Add Backend</h3>
+        <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="modal-backend-name" class="input">
+        </div>
+        <div class="form-group">
+            <label>Base URL</label>
+            <input type="text" id="modal-backend-base-url" class="input">
+        </div>
+        <div class="form-group">
+            <label>API Key</label>
+            <input type="password" id="modal-backend-api-key" class="input">
+        </div>
+        <div class="form-group">
+            <label>Timeout (seconds)</label>
+            <input type="number" id="modal-backend-timeout" class="input" min="1" max="3600" value="300">
+        </div>
+        <div class="form-group">
+            <label>Protocols</label>
+            <div style="display:flex;gap:16px">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="modal-protocol-openai" checked> OpenAI
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="modal-protocol-anthropic"> Anthropic
+                </label>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="modal-backend-enabled" checked> Enabled
+            </label>
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn" onclick="closeBackendModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="saveBackendFromModal()">Save</button>
+        </div>
+    </div>
+</div>
+
 <script>
 function switchTab(name, btn) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('tab-' + name).classList.add('active');
+}
+
+let _backendsData = [];
+let _editingBackendIndex = -1;
+
+function openBackendModal(index) {
+    _editingBackendIndex = index !== undefined ? index : -1;
+    const title = document.getElementById('backend-modal-title');
+    const nameInput = document.getElementById('modal-backend-name');
+    const urlInput = document.getElementById('modal-backend-base-url');
+    const keyInput = document.getElementById('modal-backend-api-key');
+    const timeoutInput = document.getElementById('modal-backend-timeout');
+    const openaiCb = document.getElementById('modal-protocol-openai');
+    const anthropicCb = document.getElementById('modal-protocol-anthropic');
+    const enabledCb = document.getElementById('modal-backend-enabled');
+
+    if (_editingBackendIndex >= 0) {
+        title.textContent = 'Edit Backend';
+        const data = _backendsData[_editingBackendIndex];
+        nameInput.value = data.name || '';
+        urlInput.value = data.base_url || '';
+        keyInput.value = data.api_key || '';
+        timeoutInput.value = data.timeout || 300;
+        openaiCb.checked = data.protocols.includes('openai');
+        anthropicCb.checked = data.protocols.includes('anthropic');
+        enabledCb.checked = data.enabled !== false;
+    } else {
+        title.textContent = 'Add Backend';
+        nameInput.value = '';
+        urlInput.value = '';
+        keyInput.value = '';
+        timeoutInput.value = '300';
+        openaiCb.checked = true;
+        anthropicCb.checked = false;
+        enabledCb.checked = true;
+    }
+    document.getElementById('backend-modal').style.display = 'flex';
+}
+
+function closeBackendModal() {
+    document.getElementById('backend-modal').style.display = 'none';
+}
+
+function saveBackendFromModal() {
+    const protocols = [];
+    if (document.getElementById('modal-protocol-openai').checked) protocols.push('openai');
+    if (document.getElementById('modal-protocol-anthropic').checked) protocols.push('anthropic');
+
+    const data = {
+        name: document.getElementById('modal-backend-name').value,
+        base_url: document.getElementById('modal-backend-base-url').value,
+        api_key: document.getElementById('modal-backend-api-key').value,
+        timeout: parseInt(document.getElementById('modal-backend-timeout').value) || 300,
+        protocols: protocols,
+        enabled: document.getElementById('modal-backend-enabled').checked,
+    };
+
+    if (_editingBackendIndex >= 0) {
+        _backendsData[_editingBackendIndex] = data;
+    } else {
+        _backendsData.push(data);
+    }
+    closeBackendModal();
+    renderBackendList();
+}
+
+function deleteBackend(index) {
+    if (!confirm('Delete this backend?')) return;
+    _backendsData.splice(index, 1);
+    renderBackendList();
+}
+
+function toggleBackend(index) {
+    _backendsData[index].enabled = !_backendsData[index].enabled;
+    renderBackendList();
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function renderBackendList() {
+    const container = document.getElementById('backends-list');
+    if (_backendsData.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--text-muted)">No backends configured. Click "+ Add Backend" to add one.</div>';
+        return;
+    }
+
+    let html = '<table class="table backend-table">' +
+        '<thead><tr>' +
+        '<th style="width:18%">Name</th>' +
+        '<th>Base URL</th>' +
+        '<th style="width:14%">Protocols</th>' +
+        '<th style="width:80px;text-align:center">Enabled</th>' +
+        '<th style="width:150px;text-align:right">Actions</th>' +
+        '</tr></thead><tbody>';
+
+    _backendsData.forEach((b, i) => {
+        const protocolLabels = [];
+        if (b.protocols.includes('openai')) protocolLabels.push('<span class="protocol-badge protocol-openai">OpenAI</span>');
+        if (b.protocols.includes('anthropic')) protocolLabels.push('<span class="protocol-badge protocol-anthropic">Anthropic</span>');
+
+        const isDisabled = b.enabled === false;
+        html += '<tr class="' + (isDisabled ? 'backend-disabled' : '') + '">' +
+            '<td class="cell-name">' + escapeHtml(b.name || 'Unnamed') + '</td>' +
+            '<td class="cell-url">' + escapeHtml(b.base_url || '-') + '</td>' +
+            '<td>' + protocolLabels.join(' ') + '</td>' +
+            '<td style="text-align:center">' +
+            '    <label class="toggle-switch">' +
+            '        <input type="checkbox" ' + (!isDisabled ? 'checked' : '') + ' onchange="toggleBackend(' + i + ')">' +
+            '        <span class="toggle-slider"></span>' +
+            '    </label>' +
+            '</td>' +
+            '<td style="text-align:right;white-space:nowrap">' +
+            '    <button type="button" class="btn btn-sm" onclick="openBackendModal(' + i + ')">✎ Edit</button>' +
+            '    <button type="button" class="btn btn-sm btn-danger" onclick="deleteBackend(' + i + ')">✕</button>' +
+            '</td>' +
+            '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
 }
 
 async function loadConfig() {
@@ -188,13 +325,8 @@ async function loadConfig() {
     document.getElementById('priority-strategy').value = cfg.priority.strategy;
     document.getElementById('priority-default').value = cfg.priority.default_priority;
 
-    document.getElementById('openai-backend-base-url').value = cfg.openai_backend.base_url;
-    document.getElementById('openai-backend-api-key').value = cfg.openai_backend.api_key;
-    document.getElementById('openai-backend-timeout').value = cfg.openai_backend.timeout;
-
-    document.getElementById('anthropic-backend-base-url').value = cfg.anthropic_backend.base_url;
-    document.getElementById('anthropic-backend-api-key').value = cfg.anthropic_backend.api_key;
-    document.getElementById('anthropic-backend-timeout').value = cfg.anthropic_backend.timeout;
+    _backendsData = cfg.backends || [];
+    renderBackendList();
 
     document.getElementById('debug-enabled').checked = cfg.debug.enabled;
     document.getElementById('debug-dir').value = cfg.debug.dir;
@@ -211,6 +343,7 @@ async function loadConfig() {
 
 async function saveConfig(e) {
     e.preventDefault();
+
     const body = {
         queue: {
             max_length: parseInt(document.getElementById('queue-max-length').value),
@@ -221,16 +354,7 @@ async function saveConfig(e) {
             strategy: document.getElementById('priority-strategy').value,
             default_priority: parseInt(document.getElementById('priority-default').value),
         },
-        openai_backend: {
-            base_url: document.getElementById('openai-backend-base-url').value,
-            api_key: document.getElementById('openai-backend-api-key').value,
-            timeout: parseInt(document.getElementById('openai-backend-timeout').value),
-        },
-        anthropic_backend: {
-            base_url: document.getElementById('anthropic-backend-base-url').value,
-            api_key: document.getElementById('anthropic-backend-api-key').value,
-            timeout: parseInt(document.getElementById('anthropic-backend-timeout').value),
-        },
+        backends: _backendsData,
         debug: {
             enabled: document.getElementById('debug-enabled').checked,
             dir: document.getElementById('debug-dir').value,
@@ -263,26 +387,6 @@ async function saveConfig(e) {
         alert('Save failed: ' + (err.detail || JSON.stringify(err)));
     }
 }
-
-// Sync button: copy OpenAI values to Anthropic fields
-document.getElementById('sync-backend-btn').addEventListener('click', async function() {
-    document.getElementById('anthropic-backend-base-url').value =
-        document.getElementById('openai-backend-base-url').value;
-    document.getElementById('anthropic-backend-api-key').value =
-        document.getElementById('openai-backend-api-key').value;
-    document.getElementById('anthropic-backend-timeout').value =
-        document.getElementById('openai-backend-timeout').value;
-
-    const res = await fetch('/admin/api/config/sync-openai-to-anthropic', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-    });
-    if (res.ok) {
-        const toast = document.getElementById('save-toast');
-        toast.classList.add('show');
-        setTimeout(() => { toast.classList.remove('show'); }, 3000);
-    }
-});
 
 loadConfig();
 </script>

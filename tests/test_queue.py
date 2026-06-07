@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pytest
@@ -111,3 +112,41 @@ async def test_priority_ordering():
 
     await q.signal_done("low")
     assert not q.is_processing
+
+
+@pytest.mark.asyncio
+async def test_multi_concurrency():
+    """With concurrency=2, two requests can be processed simultaneously."""
+    q = PriorityQueue(max_size=10, max_concurrency=2)
+    ctx1 = make_context("req-1", priority=100)
+    ctx2 = make_context("req-2", priority=100)
+    ctx3 = make_context("req-3", priority=100)
+
+    await q.enqueue(ctx1)
+    await q.enqueue(ctx2)
+    await q.enqueue(ctx3)
+
+    # Process req-1 and req-2 simultaneously
+    await q.wait_for_turn("req-1")
+    await q.wait_for_turn("req-2")
+    assert q.is_processing
+    assert q.processing_count == 2
+    assert q.max_concurrency == 2
+    assert q.waiting_count == 1  # req-3 still waiting
+
+    # req-3 should not be able to proceed since all slots are full
+    with pytest.raises(asyncio.TimeoutError):
+        await q.wait_for_turn("req-3", timeout=0.1)
+
+    # Finish req-1 → one slot frees up
+    await q.signal_done("req-1")
+    assert q.processing_count == 1
+
+    # Now req-3 should proceed
+    await q.wait_for_turn("req-3")
+    assert q.processing_count == 2
+
+    await q.signal_done("req-2")
+    await q.signal_done("req-3")
+    assert not q.is_processing
+    assert q.processing_count == 0

@@ -39,9 +39,12 @@ class PriorityConfig(BaseModel):
 
 
 class BackendConfig(BaseModel):
-    base_url: str = "http://localhost:11434/v1"
+    name: str = ""
+    base_url: str = ""
     api_key: str = ""
     timeout: int = 300  # seconds
+    protocols: list[str] = ["openai"]
+    enabled: bool = True
 
 
 class LoggingConfig(BaseModel):
@@ -90,8 +93,7 @@ class AppConfig(BaseModel):
     database: DatabaseConfig = DatabaseConfig()
     queue: QueueConfig = QueueConfig()
     priority: PriorityConfig = PriorityConfig()
-    openai_backend: BackendConfig = BackendConfig(base_url="http://localhost:11434/v1")
-    anthropic_backend: BackendConfig = BackendConfig(base_url="http://localhost:11434/v1")
+    backends: list[BackendConfig] = []
     logging: LoggingConfig = LoggingConfig()
     debug: DebugConfig = DebugConfig()
     metrics: MetricsConfig = MetricsConfig()

@@ -34,6 +34,8 @@ async def get_queue_status(request: Request, _=Depends(_admin_auth)):
         max_length=queue.max_size,
         current_waiting=queue.waiting_count,
         current_processing=queue.is_processing,
+        processing_count=queue.processing_count,
+        max_concurrency=queue.max_concurrency,
         queue_full=queue.is_full,
     )
 
@@ -378,12 +380,6 @@ class MutablePriority(BaseModel):
     default_priority: Optional[int] = None
 
 
-class MutableBackend(BaseModel):
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    timeout: Optional[int] = None
-
-
 class MutableDebug(BaseModel):
     enabled: Optional[bool] = None
     dir: Optional[str] = None
@@ -405,36 +401,24 @@ class MutableProxy(BaseModel):
 class MutableConfig(BaseModel):
     queue: Optional[MutableQueue] = None
     priority: Optional[MutablePriority] = None
-    openai_backend: Optional[MutableBackend] = None
-    anthropic_backend: Optional[MutableBackend] = None
+    backends: Optional[list[BackendConfig]] = None
     debug: Optional[MutableDebug] = None
     metrics: Optional[MutableMetrics] = None
     proxy: Optional[MutableProxy] = None
 
 
-def _apply_backend(config: BackendConfig, mutable: MutableBackend, prefix: str, changed: list):
-    if mutable.base_url is not None:
-        config.base_url = mutable.base_url
-        changed.append(f"{prefix}.base_url")
-    if mutable.api_key is not None:
-        config.api_key = mutable.api_key
-        changed.append(f"{prefix}.api_key")
-    if mutable.timeout is not None:
-        config.timeout = mutable.timeout
-        changed.append(f"{prefix}.timeout")
+class MutableLogRetention(BaseModel):
+    retention_days: Optional[int] = None
+    max_records: Optional[int] = None
+
+
+class MutableCors(BaseModel):
+    origins: Optional[list[str]] = None
 
 
 def _recreate_adapter(adapter_name: str, backend_config: BackendConfig):
-    """Recreate a single adapter module-level variable."""
-    import app.api.proxy as proxy_module
-    from app.config import get_config
-    proxy_url = get_config().proxy.to_url()
-    if adapter_name == "openai":
-        from app.adapters.openai import OpenAIAdapter
-        proxy_module._openai_adapter = OpenAIAdapter(backend_config, proxy_url=proxy_url)
-    elif adapter_name == "anthropic":
-        from app.adapters.anthropic import AnthropicAdapter
-        proxy_module._anthropic_adapter = AnthropicAdapter(backend_config, proxy_url=proxy_url)
+    """No-op: adapters are created on-the-fly per request."""
+    pass
 
 
 @router.get("/config")
@@ -447,16 +431,7 @@ async def get_config_admin(request: Request, _=Depends(_admin_auth)):
             "strategy": cfg.priority.strategy,
             "default_priority": cfg.priority.default_priority,
         },
-        "openai_backend": {
-            "base_url": cfg.openai_backend.base_url,
-            "api_key": cfg.openai_backend.api_key,
-            "timeout": cfg.openai_backend.timeout,
-        },
-        "anthropic_backend": {
-            "base_url": cfg.anthropic_backend.base_url,
-            "api_key": cfg.anthropic_backend.api_key,
-            "timeout": cfg.anthropic_backend.timeout,
-        },
+        "backends": [b.model_dump() for b in cfg.backends],
         "debug": {"enabled": cfg.debug.enabled, "dir": cfg.debug.dir},
         "metrics": {"enabled": cfg.metrics.enabled},
         "proxy": {
@@ -493,6 +468,8 @@ async def update_config_admin(body: MutableConfig, request: Request,
             changed.append("queue.max_length")
         if body.queue.concurrency is not None:
             cfg.queue.concurrency = body.queue.concurrency
+            q = get_queue()
+            q._max_concurrency = body.queue.concurrency
             changed.append("queue.concurrency")
         if body.queue.timeout is not None:
             cfg.queue.timeout = body.queue.timeout
@@ -512,15 +489,12 @@ async def update_config_admin(body: MutableConfig, request: Request,
             import app.api.proxy as proxy_module
             proxy_module._strategy = create_strategy(cfg.priority.strategy)
 
-    # Backend — OpenAI
-    if body.openai_backend:
-        _apply_backend(cfg.openai_backend, body.openai_backend, "openai_backend", changed)
-        _recreate_adapter("openai", cfg.openai_backend)
-
-    # Backend — Anthropic
-    if body.anthropic_backend:
-        _apply_backend(cfg.anthropic_backend, body.anthropic_backend, "anthropic_backend", changed)
-        _recreate_adapter("anthropic", cfg.anthropic_backend)
+    # Backends — full replacement
+    if body.backends is not None:
+        cfg.backends = body.backends
+        import app.api.proxy as proxy_module
+        proxy_module._backend_indices.clear()
+        changed.append("backends")
 
     # Debug
     if body.debug:
@@ -559,9 +533,6 @@ async def update_config_admin(body: MutableConfig, request: Request,
         if body.proxy.password is not None:
             cfg.proxy.password = body.proxy.password
             changed.append("proxy.password")
-        # Recreate both adapters with new proxy config
-        _recreate_adapter("openai", cfg.openai_backend)
-        _recreate_adapter("anthropic", cfg.anthropic_backend)
 
     import structlog
     logger = structlog.get_logger()
@@ -569,19 +540,3 @@ async def update_config_admin(body: MutableConfig, request: Request,
 
     return {"ok": True, "changes": changed}
 
-
-@router.post("/config/sync-openai-to-anthropic")
-async def sync_openai_to_anthropic(request: Request,
-                                    _=Depends(_admin_auth)):
-    """Copy OpenAI backend config to Anthropic backend config."""
-    cfg = get_config()
-    cfg.anthropic_backend.base_url = cfg.openai_backend.base_url
-    cfg.anthropic_backend.api_key = cfg.openai_backend.api_key
-    cfg.anthropic_backend.timeout = cfg.openai_backend.timeout
-    _recreate_adapter("anthropic", cfg.anthropic_backend)
-
-    import structlog
-    logger = structlog.get_logger()
-    logger.info("config.synced", source="openai_backend", target="anthropic_backend")
-
-    return {"ok": True, "changes": ["anthropic_backend.base_url", "anthropic_backend.api_key", "anthropic_backend.timeout"]}

@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.adapters.anthropic import AnthropicAdapter
 from app.adapters.openai import OpenAIAdapter
-from app.config import get_config
+from app.config import BackendConfig, get_config
 from app.core.auth import authenticate_request
 from app.core.metrics import (
     metrics_enabled,
@@ -28,20 +28,26 @@ from app.strategies.factory import create_strategy
 
 router = APIRouter()
 
-# Lazy-init adapters + strategy
-_openai_adapter: Optional[OpenAIAdapter] = None
-_anthropic_adapter: Optional[AnthropicAdapter] = None
+# Lazy-init strategy + backend round-robin indices
 _strategy = None
+_backend_indices: dict[str, int] = {}  # protocol -> current index
 
 
-def _ensure_adapters():
-    global _openai_adapter, _anthropic_adapter, _strategy
-    if _openai_adapter is None:
-        config = get_config()
-        proxy_url = config.proxy.to_url()
-        _openai_adapter = OpenAIAdapter(config.openai_backend, proxy_url=proxy_url)
-        _anthropic_adapter = AnthropicAdapter(config.anthropic_backend, proxy_url=proxy_url)
-        _strategy = create_strategy(config.priority.strategy)
+def _ensure_strategy():
+    global _strategy
+    if _strategy is None:
+        _strategy = create_strategy(get_config().priority.strategy)
+
+
+def _select_backend(protocol: str) -> Optional[BackendConfig]:
+    """Select the next backend that supports the given protocol (round-robin)."""
+    config = get_config()
+    eligible = [b for b in config.backends if protocol in b.protocols and b.enabled]
+    if not eligible:
+        return None
+    idx = _backend_indices.get(protocol, 0) % len(eligible)
+    _backend_indices[protocol] = idx + 1
+    return eligible[idx]
 
 
 # ── Debug request/response dump ────────────────────────────────────
@@ -189,11 +195,27 @@ async def _save_log(context: RequestContext, wait_ms: int, proc_ms: int):
 
 async def _process_request(request: Request, endpoint: str) -> Response:
     """Shared request processing for both OpenAI and Anthropic endpoints."""
-    _ensure_adapters()
+    _ensure_strategy()
     config = get_config()
     queue = get_queue()
 
-    # Authenticate
+    # Determine protocol from endpoint
+    protocol = "openai" if endpoint == "/v1/chat/completions" else "anthropic"
+
+    # Select backend via round-robin
+    backend = _select_backend(protocol)
+    if backend is None:
+        return JSONResponse(
+            status_code=502,
+            content={"error": f"No {protocol} backend configured"},
+        )
+
+    proxy_url = config.proxy.to_url()
+    adapter = (
+        OpenAIAdapter(backend, proxy_url=proxy_url)
+        if protocol == "openai"
+        else AnthropicAdapter(backend, proxy_url=proxy_url)
+    )
     user_name = await authenticate_request(request)
 
     # Parse body
@@ -291,9 +313,6 @@ async def _process_request(request: Request, endpoint: str) -> Response:
     if metrics_enabled():
         queue_length.set(queue.waiting_count)
 
-    # Determine adapter
-    adapter = _openai_adapter if endpoint == "/v1/chat/completions" else _anthropic_adapter
-
     # Stream or non-stream
     if is_stream:
         generator = _stream_wrapper(adapter.stream(context), context.request_id, context)
@@ -318,7 +337,12 @@ async def _models_list(request: Request) -> Response:
     config = get_config()
     await authenticate_request(request)
 
-    url = f"{config.openai_backend.base_url}/models"
+    # Use the first OpenAI-capable backend
+    backend = next((b for b in config.backends if "openai" in b.protocols), None)
+    if backend is None:
+        return JSONResponse(status_code=502, content={"error": "No OpenAI backend configured"})
+
+    url = f"{backend.base_url}/models"
 
     # Forward client headers as-is, but override Host and add backend auth
     headers = dict(request.headers)
@@ -326,15 +350,15 @@ async def _models_list(request: Request) -> Response:
     for key in ("host", "connection", "content-length", "content-encoding",
                 "transfer-encoding", "x-forwarded-for", "x-forwarded-proto"):
         headers.pop(key, None)
-    if config.openai_backend.api_key:
-        headers["Authorization"] = f"Bearer {config.openai_backend.api_key}"
+    if backend.api_key:
+        headers["Authorization"] = f"Bearer {backend.api_key}"
 
     import httpx
     import structlog
     logger = structlog.get_logger()
     proxy_url = config.proxy.to_url() or None
     try:
-        async with httpx.AsyncClient(timeout=config.openai_backend.timeout,
+        async with httpx.AsyncClient(timeout=backend.timeout,
                                      trust_env=False,
                                      proxy=proxy_url) as client:
             resp = await client.get(url, headers=headers)
@@ -365,6 +389,8 @@ async def queue_status():
         max_length=q.max_size,
         current_waiting=q.waiting_count,
         current_processing=q.is_processing,
+        processing_count=q.processing_count,
+        max_concurrency=q.max_concurrency,
         queue_full=q.is_full,
     )
 

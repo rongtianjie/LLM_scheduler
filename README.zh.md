@@ -248,6 +248,8 @@ app/
 
 ## 扩展点
 
-- **优先级策略**：实现 `PriorityStrategy` 接口，通过配置切换
-- **多并发**：修改 `queue.concurrency` > 1，改造为工作协程池
-- **负载均衡**：在适配器层增加 upstream 选择逻辑
+所有扩展点均已实现：
+
+- **优先级策略**：通过 `PriorityStrategy` 接口完全支持，内置 `ApiKeyPriorityStrategy` 实现，支持策略切换
+- **多并发**：通过 `queue.concurrency` 配置（> 1 即启用多并发处理）
+- **负载均衡**：通过 `backends` 配置多个后端地址，适配器层内置轮询（round-robin）负载均衡

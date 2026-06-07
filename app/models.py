@@ -42,6 +42,8 @@ class QueueStatus(BaseModel):
     max_length: int
     current_waiting: int
     current_processing: bool
+    processing_count: int
+    max_concurrency: int
     queue_full: bool
 
 
