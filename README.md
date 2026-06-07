@@ -2,6 +2,10 @@
 >
 > **Detailed API Documentation: [English Documentation](./DOCS.md) | [中文文档](./DOCS.zh.md)**
 
+<p align="center">
+  <img src="./llm-gateway-logo.png" alt="LLM Gateway Logo">
+</p>
+
 # LLM Gateway Proxy
 
 A production-grade LLM API gateway proxy with priority queueing, concurrency control, API Key authentication, and an embedded admin dashboard.
@@ -152,4 +156,3 @@ app/
 ```
 
 For the detailed project structure with file-by-file descriptions, see [Project Structure](./DOCS.md#project-structure).
-
