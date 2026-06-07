@@ -7,6 +7,7 @@ A production-grade LLM API gateway proxy with priority queueing, concurrency con
 ## Features
 
 - **Dual Protocol Support**: Compatible with both OpenAI and Anthropic API formats, with independently configurable backends
+- **Load Balancing**: Round-robin across multiple backends supporting the same protocol; individual backends can be enabled/disabled independently
 - **Priority Queue**: Requests are prioritized by API Key; high-priority requests jump the queue
 - **Concurrency Control**: Configurable concurrency limit; returns 429 when queue is full
 - **Queue Timeout**: Configurable wait timeout; returns 408 on timeout
@@ -189,13 +190,13 @@ Access `http://localhost:8001/admin` in your browser and log in with the configu
 - **Logs**: Request history with token usage column and status code color coding, filterable by user and endpoint with pagination
 - **Management**: Runtime configuration with three tabs (Scheduling / Backend / System)
   - **Scheduling**: Queue config (Max Length, Concurrency) + priority strategy
-  - **Backend**: OpenAI backend + Anthropic backend config, with one-click sync
+  - **Backend**: Unified backend list with add/edit/delete, protocol selection (OpenAI/Anthropic), and enabled/disabled toggle
   - **System**: Debug mode, Prometheus Metrics, proxy server (HTTP/HTTPS/SOCKS5) configuration
 
 ## Queue Behavior
 
 1. All requests are enqueued by priority (lower value = higher priority)
-2. Only one request is processed at a time
+2. Up to `queue.concurrency` requests are processed simultaneously (default: 1, configurable for multi-concurrency)
 3. High-priority requests are inserted at the queue head without interrupting the currently processing request
 4. Returns HTTP 429 when the queue is full
 5. Subsequent requests wait while a streaming request is in progress
@@ -246,10 +247,3 @@ app/
     └── chart.umd.min.js # Chart.js (locally deployed)
 ```
 
-## Extension Points
-
-All extension points have been implemented:
-
-- **Priority Strategy**: Fully supported via the `PriorityStrategy` interface, with the built-in `ApiKeyPriorityStrategy` and configurable strategy selection
-- **Multi-Concurrency**: Configurable via `queue.concurrency` (> 1 enables concurrent processing)
-- **Load Balancing**: Multiple backend URLs can be configured via `backends`, with built-in round-robin upstream selection in the adapter layer

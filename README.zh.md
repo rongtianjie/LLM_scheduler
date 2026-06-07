@@ -7,6 +7,7 @@
 ## 功能特性
 
 - **双协议兼容**：同时支持 OpenAI 和 Anthropic API 格式，可独立配置后端地址
+- **负载均衡**：多后端支持同一协议时自动轮询（round-robin），每条后端可独立启用/禁用
 - **优先级队列**：根据 API Key 分配优先级，高优先级请求插队
 - **并发控制**：可配置并发数（concurrency），队列满返回 429
 - **队列超时**：可配置等待超时时间，超时返回 408
@@ -189,13 +190,13 @@ curl -b cookies.txt -X PUT http://localhost:8001/admin/api/config \
 - **Logs**：查看请求历史，含 Token 用量列和状态码颜色标记，支持按用户和端点筛选分页
 - **Management**：运行时配置管理，分三个 Tab（Scheduling / Backend / System）
   - **Scheduling**：队列配置（Max Length、Concurrency）+ 优先级策略
-  - **Backend**：OpenAI 后端 + Anthropic 后端配置，支持一键同步
+  - **Backend**：统一后端列表，支持添加/编辑/删除、协议选择（OpenAI/Anthropic）和启用/禁用开关
   - **System**：Debug 模式、Prometheus Metrics、代理服务器（HTTP/HTTPS/SOCKS5）配置
 
 ## 队列行为
 
 1. 所有请求按优先级入队（数值越小越优先）
-2. 同一时间只处理 1 个请求
+2. 并发数由 `queue.concurrency` 控制（默认 1，可增加以实现多并发处理）
 3. 高优先级请求插入队列头部，不中断当前正在处理的请求
 4. 队列满时返回 HTTP 429
 5. 流式请求持续期间，后续请求排队等待
@@ -246,10 +247,3 @@ app/
     └── chart.umd.min.js # Chart.js（本地部署）
 ```
 
-## 扩展点
-
-所有扩展点均已实现：
-
-- **优先级策略**：通过 `PriorityStrategy` 接口完全支持，内置 `ApiKeyPriorityStrategy` 实现，支持策略切换
-- **多并发**：通过 `queue.concurrency` 配置（> 1 即启用多并发处理）
-- **负载均衡**：通过 `backends` 配置多个后端地址，适配器层内置轮询（round-robin）负载均衡
