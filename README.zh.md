@@ -3,10 +3,10 @@
 > **详细API文档请参见：[中文文档](./DOCS.zh.md) | [English Documentation](./DOCS.md)**
 
 <p align="center">
-  <img src="./llm-gateway-logo.png" alt="LLM Gateway Logo">
+  <img src="./llm-scheduler-logo.png" alt="LLM Scheduler Logo">
 </p>
 
-# LLM Gateway Proxy
+# LLM Scheduler
 
 生产级 LLM API 网关代理，支持优先级队列、并发控制、API Key 认证和嵌入式管理面板。
 
@@ -67,15 +67,15 @@ docker-compose logs -f
 
 ```bash
 # 构建
-docker build -t llm-gateway-proxy .
+docker build -t llm-scheduler .
 
 # 运行
 docker run -d \
-  --name llm-gateway \
+  --name llm-scheduler \
   -p 8001:8001 \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v gateway-data:/app/data \
-  llm-gateway-proxy
+  llm-scheduler
 ```
 
 ## 配置说明

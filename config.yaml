@@ -9,7 +9,7 @@ admin:
   enabled: true
   username: "admin"
   password: "admin123"
-  secret_key: "llm-gateway-default-secret"
+  secret_key: "llm-scheduler-default-secret"
   session_https_only: false  # set to true in production behind HTTPS
 
 database:

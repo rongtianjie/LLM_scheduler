@@ -19,7 +19,7 @@ class AdminConfig(BaseModel):
     enabled: bool = True
     username: str = "admin"
     password: str = "admin123"
-    secret_key: str = "llm-gateway-default-secret"
+    secret_key: str = "llm-scheduler-default-secret"
     session_https_only: bool = False
 
 

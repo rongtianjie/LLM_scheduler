@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-echo Starting LLM Gateway Proxy...
+echo Starting LLM Scheduler...
 call python -m app.main
 if errorlevel 1 (
     echo.

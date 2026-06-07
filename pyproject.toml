@@ -1,5 +1,5 @@
 [project]
-name = "llm-gateway-proxy"
+name = "llm-scheduler"
 version = "1.0.0"
 description = "LLM API gateway proxy with priority queuing, concurrency control, and admin dashboard"
 requires-python = ">=3.11"

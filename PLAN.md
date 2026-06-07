@@ -1,9 +1,9 @@
-# LLM Gateway Proxy — 实现方案
+# LLM Scheduler — 实现方案
 
 ## 一、项目结构
 
 ```
-llm-gateway-proxy/
+llm-scheduler/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                    # FastAPI 入口，应用生命周期管理

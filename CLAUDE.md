@@ -1,4 +1,4 @@
-# LLM Gateway Proxy
+# LLM Scheduler
 
 ## Overview
 An LLM API gateway proxy with priority queuing, concurrency control, queue timeout, rate limiting, token quota, log retention, API key authentication, structured logging, Prometheus metrics, CORS support, proxy server support, and an embedded admin dashboard with custom login page and Chart.js charts.

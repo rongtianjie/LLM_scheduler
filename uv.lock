@@ -214,7 +214,7 @@ wheels = [
 ]
 
 [[package]]
-name = "llm-gateway-proxy"
+name = "llm-scheduler"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [

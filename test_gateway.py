@@ -1,4 +1,4 @@
-"""LLM Gateway 并发压力测试脚本
+"""LLM Scheduler 并发压力测试脚本
 
 2 线程并发循环请求，自动获取第一个可用模型。
 用法: python test_gateway.py [--threads N] [--url URL] [--key KEY]
@@ -101,7 +101,7 @@ def print_stats():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="LLM Gateway 并发测试")
+    parser = argparse.ArgumentParser(description="LLM Scheduler 并发测试")
     parser.add_argument("--url", default="http://127.0.0.1:8001", help="网关地址")
     parser.add_argument("--key", default="", help="API Key")
     parser.add_argument("--threads", type=int, default=2, help="并发线程数")

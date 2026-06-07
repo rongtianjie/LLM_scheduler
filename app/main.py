@@ -92,7 +92,7 @@ def create_app() -> FastAPI:
 
     # Create FastAPI app
     app = FastAPI(
-        title="LLM Gateway Proxy",
+        title="LLM Scheduler",
         version="1.0.0",
         docs_url=None,
         redoc_url=None,

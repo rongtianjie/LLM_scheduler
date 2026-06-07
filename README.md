@@ -3,10 +3,10 @@
 > **Detailed API Documentation: [English Documentation](./DOCS.md) | [中文文档](./DOCS.zh.md)**
 
 <p align="center">
-  <img src="./llm-gateway-logo.png" alt="LLM Gateway Logo">
+  <img src="./llm-scheduler-logo.png" alt="LLM Scheduler Logo">
 </p>
 
-# LLM Gateway Proxy
+# LLM Scheduler
 
 A production-grade LLM API gateway proxy with priority queueing, concurrency control, API Key authentication, and an embedded admin dashboard.
 
@@ -67,15 +67,15 @@ docker-compose logs -f
 
 ```bash
 # Build
-docker build -t llm-gateway-proxy .
+docker build -t llm-scheduler .
 
 # Run
 docker run -d \
-  --name llm-gateway \
+  --name llm-scheduler \
   -p 8001:8001 \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v gateway-data:/app/data \
-  llm-gateway-proxy
+  llm-scheduler
 ```
 
 ## Configuration

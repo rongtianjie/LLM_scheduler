@@ -1,4 +1,4 @@
-# LLM Gateway Proxy — 详细文档
+# LLM Scheduler — 详细文档
 
 > [**English Documentation**](./DOCS.md) | [**中文文档**](./DOCS.zh.md)
 >
@@ -34,7 +34,7 @@
 
 ```
 ┌──────────────┐     ┌─────────────────────────────────────────────────────┐
-│   客户端      │────▶│              LLM Gateway Proxy (FastAPI)            │
+│   客户端      │────▶│              LLM Scheduler (FastAPI)            │
 │  (curl/SDK)  │     │                                                     │
 └──────────────┘     │  ┌──────────┐  ┌───────────┐  ┌──────────────────┐  │
                      │  │   认证    │─▶│  速率限制  │─▶│  Token 配额检查  │  │
@@ -716,7 +716,7 @@ class AdminConfig:
     enabled: bool = True
     username: str = "admin"
     password: str = "admin123"
-    secret_key: str = "llm-gateway-default-secret"  # Session 加密密钥
+    secret_key: str = "llm-scheduler-default-secret"  # Session 加密密钥
     session_https_only: bool = False  # Secure cookie 标志
 
 class DatabaseConfig:
@@ -783,7 +783,7 @@ admin:
   enabled: true
   username: "admin"
   password: "admin123"
-  secret_key: "llm-gateway-default-secret"
+  secret_key: "llm-scheduler-default-secret"
   session_https_only: false
 
 database:

@@ -1,8 +1,8 @@
 @echo off
 cd /d "%~dp0"
-title LLM Gateway Load Test
+title LLM Scheduler Load Test
 echo ========================================
-echo   LLM Gateway Concurrent Load Test
+echo   LLM Scheduler Concurrent Load Test
 echo   3 threads, loop requests
 echo ========================================
 echo.
